@@ -7,7 +7,6 @@ import glob
 from .util import piperun, table_name_valid
 
 from .seqclassifier import SequenceClassifier
-import osr
 import sys
 import csv
 
@@ -115,6 +114,8 @@ class ShapeLoader(GeoDataLoader):
     def auto_srid(cls, prj_text):
         if prj_text is None:
             return None
+        # FIXME: broken right now as GDAL not available
+        import osr
         srs = osr.SpatialReference()
         srs.ImportFromESRI([prj_text])
         srs.AutoIdentifyEPSG()

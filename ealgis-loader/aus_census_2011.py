@@ -45,7 +45,7 @@ def go(eal, tmpdir):
         'sua': ('sua_code', None, 'Significant Urban Areas'),
         'ucl': ('ucl_code', None, 'Urban Centre/Locality')
     }
-
+    
     census_division_table = {}
     geo_gid_mapping = {}
 
