@@ -21,7 +21,10 @@ import sqlalchemy
 import hashlib
 import time
 import random
+from .util import make_logger
 
+
+logger = make_logger(__name__)
 
 class EalLoader(object):
     def __init__(self):
@@ -40,7 +43,7 @@ class EalLoader(object):
             raise Exception("the dataloader database already exists - it should be nuked after each load, so this probably means that a data load failed")
         else:
             create_database(self._connection_string())
-            print("dataloader database created")
+            logger.debug("dataloader database created")
 
     def _connection_string(self):
         # try and autoconfigure for running under docker
@@ -120,7 +123,7 @@ class EalLoader(object):
         self.register_columns(table_name, [column_name, meta_dict])
 
     def repair_geometry(self, geometry_source):
-        print("running geometry QC and repair:", geometry_source.table_info.name)
+        logger.debug("running geometry QC and repair:", geometry_source.table_info.name)
         cls = self.get_table_class(geometry_source.table_info.name)
         geom_attr = getattr(cls, geometry_source.column)
         self.db.session.execute(sqlalchemy.update(

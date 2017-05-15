@@ -1,11 +1,22 @@
 
 import subprocess as sp
+import logging
 import itertools
 import os.path
 import os
 import re
 
 table_name_re = re.compile(r'^[A-Za-z0-9_]+$')
+
+
+def make_logger(name):
+    logger = logging.getLogger(name)
+    logger.setLevel(logging.DEBUG)
+    handler = logging.StreamHandler()
+    fmt = logging.Formatter("%(asctime)s [%(levelname)-7s] [%(threadName)s]  %(message)s")
+    handler.setFormatter(fmt)
+    logger.addHandler(handler)
+    return logger
 
 
 def pairwise(iterable):

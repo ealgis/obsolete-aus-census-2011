@@ -6,7 +6,7 @@
 
 from ealgis.loaders import ZipAccess, ShapeLoader, RewrittenCSV, CSVLoader
 from sqlalchemy_utils import drop_database
-from ealgis.util import alistdir
+from ealgis.util import alistdir, make_logger
 from ealgis.db import EalLoader
 from ealgis_data_schema.schema_v1 import (EALGISMetadata)
 from ealgis.util import cmdrun
@@ -17,6 +17,9 @@ import glob
 import os.path
 import openpyxl
 import sqlalchemy
+
+
+logger = make_logger(__name__)
 
 
 def go(loader, tmpdir):
@@ -62,7 +65,7 @@ def go(loader, tmpdir):
         loader.session.query(sqlalchemy.cast(cls.sa1_7digit, sqlalchemy.Integer()))[:10]
 
     def load_shapes():
-        print("load shapefiles")
+        logger.debug("load shapefiles")
         new_tables = []
 
         def shapefiles():
@@ -90,9 +93,9 @@ def go(loader, tmpdir):
                     assert(len(new) == 1)
                     new_tables.append(new[0])
 
-        print("loaded shapefile OK")
+        logger.info("loaded shapefile OK")
 
-        print("creating shape indexes")
+        logger.info("creating shape indexes")
         # create column indexes on shape linkage
         loader.session.commit()
         for census_division in shp_linkage:
@@ -105,13 +108,13 @@ def go(loader, tmpdir):
             idx = loader.db.Index("%s_%s_idx" % (table, col), info.columns[col], unique=True)
             try:
                 idx.create(loader.db.engine)
-                print(idx)
+                logger.debug(repr(idx))
             except sqlalchemy.exc.ProgrammingError:
                 # index already exists
                 loader.session.rollback()
 
         # create geo_column -> gid mapping
-        print("creating gid mapping tables")
+        logger.info("creating gid mapping tables")
         for census_division in shp_linkage:
             geo_table = census_division_table[census_division]
             geo_column, geo_cast_required, _ = shp_linkage[census_division]
@@ -121,7 +124,7 @@ def go(loader, tmpdir):
                 inner_col = sqlalchemy.cast(geo_attr, geo_cast_required)
             else:
                 inner_col = geo_attr
-            print(geo_table, geo_column, inner_col)
+            logger.debug(repr([geo_table, geo_column, inner_col]))
             lookup = {}
             for gid, match in loader.session.query(geo_cls.gid, inner_col).all():
                 lookup[str(match)] = gid
@@ -149,7 +152,7 @@ def go(loader, tmpdir):
         linkage_pending = []
 
         for i, csv_path in enumerate(csv_files):
-            print("[%d/%d] %s: %s" % (i + 1, len(csv_files), packname, os.path.basename(csv_path)))
+            logger.info("[%d/%d] %s: %s" % (i + 1, len(csv_files), packname, os.path.basename(csv_path)))
             table_name = table_re.match(os.path.split(csv_path)[-1]).groups()[0].lower()
             data_tables.append(table_name)
             decoded = table_name.split('_')
@@ -193,7 +196,7 @@ def go(loader, tmpdir):
 
     def load_metadata(*fnames):
         def load_workbook(fname):
-            print("parsing metadata: %s" % (fname))
+            logger.info("parsing metadata: %s" % (fname))
             wb = openpyxl.load_workbook(fname, use_iterators=True)
 
             def sheet_data(sheet):
@@ -243,7 +246,7 @@ def go(loader, tmpdir):
     first_version = EALGISMetadata(name="ABS Census 2011", version="1.0", description="The full 2011 Census data dump from the ABS.")
     loader.session.add(first_version)
     loader.session.commit()
-    print("created metadata record - version %s in `ealgis_metadata`" % (first_version.version))
+    logger.info("created metadata record - version %s in `ealgis_metadata`" % (first_version.version))
 
     load_shapes()
 
@@ -262,21 +265,21 @@ def go(loader, tmpdir):
         "Metadata_2011_WPP_DataPack.xlsx",
         "Metadata_2011_XCP_DataPack.xlsx")
 
-    print("create schema %s" % schema_name)
+    logger.info("create schema %s" % schema_name)
     loader.db.engine.execute(CreateSchema(schema_name))
 
-    print("move tables to standalone schema")
+    logger.info("move tables to standalone schema")
     ealgis_tables = ["user", "setting", "geometry_touches", "map_definition", "geometry_intersection", "geometry_relation", "spatial_ref_sys"]
     for table_name in loader.get_table_names():
         if table_name not in ealgis_tables:
             try:
                 loader.db.engine.execute('ALTER TABLE %s SET SCHEMA %s;' % (table_name, schema_name))
                 loader.session.commit()
-                print(table_name)
+                logger.info(table_name)
             except sqlalchemy.exc.ProgrammingError as e:
-                print("couldn't change schema for table: %s (%s)" % (table_name, e))
+                logger.info("couldn't change schema for table: %s (%s)" % (table_name, e))
 
-    print("dumping database")
+    logger.info("dumping database")
     os.environ['PGPASSWORD'] = loader.dbpassword()
     shp_cmd = ["pg_dump", str(loader.engineurl()), "--schema=%s" % schema_name, "--format=c", "--file=/app/tmp/%s" % schema_name]
 
@@ -284,11 +287,11 @@ def go(loader, tmpdir):
     if code != 0:
         raise Exception("database dump with pg_dump failed: %s." % stderr)
     else:
-        print("successfully dumped database to /app/tmp/%s" % schema_name)
-        print("load with: pg_restore --username=user --dbname=db /path/to/%s" % schema_name)
-        print("then run VACUUM ANALYZE;")
+        logger.info("successfully dumped database to /app/tmp/%s" % schema_name)
+        logger.info("load with: pg_restore --username=user --dbname=db /path/to/%s" % schema_name)
+        logger.info("then run VACUUM ANALYZE;")
 
-    print("nuking the database")
+    logger.info("nuking the database")
     drop_database(loader.engineurl())
 
 
@@ -296,4 +299,4 @@ if __name__ == '__main__':
     loader = EalLoader()
     tmpdir = "/app/tmp"
     go(loader, tmpdir)
-    print("OK")
+    logger.info("OK")
