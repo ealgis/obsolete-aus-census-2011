@@ -105,13 +105,9 @@ def go(loader, tmpdir):
             info = loader.get_table(table)
             col, _, descr = shp_linkage[census_division]
             loader.set_table_metadata(table, {'description': descr})
-            idx = loader.db.Index("%s_%s_idx" % (table, col), info.columns[col], unique=True)
-            try:
-                idx.create(loader.db.engine)
-                logger.debug(repr(idx))
-            except sqlalchemy.exc.ProgrammingError:
-                # index already exists
-                loader.session.rollback()
+            idx = sqlalchemy.Index("%s_%s_idx" % (table, col), info.columns[col], unique=True)
+            idx.create(loader.engine)
+            logger.debug(repr(idx))
 
         # create geo_column -> gid mapping
         logger.info("creating gid mapping tables")

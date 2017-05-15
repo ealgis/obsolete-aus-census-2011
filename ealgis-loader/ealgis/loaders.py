@@ -203,7 +203,7 @@ class CSVLoader(GeoDataLoader):
         self.pkey_column = pkey_column
 
     def load(self, loader, column_types=None):
-        db = loader.db
+        engine = loader.engine
 
         def get_column_types(header, max_rows=None):
             sql_columns = {
@@ -241,8 +241,8 @@ class CSVLoader(GeoDataLoader):
             cols = columns(header)
         metadata = loader.db.MetaData()
         new_tbl = db.Table(self.table_name, metadata, *cols)
-        metadata.create_all(loader.db.engine)
-        loader.db.session.commit()
+        metadata.create_all(loader.engine)
+        loader.session.commit()
         del new_tbl
 
         # this isn't wrapped by SQLAlchemy, so we must do it ourselves;
