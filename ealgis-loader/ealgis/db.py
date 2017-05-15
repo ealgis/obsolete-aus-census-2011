@@ -4,12 +4,12 @@ try:
 except ImportError:
     import json
 from sqlalchemy import inspect
-from sqlalchemy.ext.declarative import declarative_base
 from geoalchemy2.types import Geometry
 from sqlalchemy import create_engine
 from sqlalchemy_utils import database_exists, create_database
 from sqlalchemy.orm import sessionmaker
 from ealgis_data_schema.schema_v1 import (
+    Base,
     GeometrySource,
     GeometrySourceProjected,
     GeometryLinkage,
@@ -21,8 +21,6 @@ import sqlalchemy
 import hashlib
 import time
 import random
-
-Base = declarative_base()
 
 
 class EalLoader(object):

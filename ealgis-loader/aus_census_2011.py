@@ -59,7 +59,7 @@ def go(loader, tmpdir):
 
     def mapper():
         cls = loader.get_table_class('sa1_2011_aust')
-        loader.db.session.query(sqlalchemy.cast(cls.sa1_7digit, sqlalchemy.Integer()))[:10]
+        loader.session.query(sqlalchemy.cast(cls.sa1_7digit, sqlalchemy.Integer()))[:10]
 
     def load_shapes():
         print("load shapefiles")
@@ -94,7 +94,7 @@ def go(loader, tmpdir):
 
         print("creating shape indexes")
         # create column indexes on shape linkage
-        loader.db.session.commit()
+        loader.session.commit()
         for census_division in shp_linkage:
             pfx = "%s_2011" % (census_division)
             table = [t for t in new_tables if t.startswith(pfx)][0]
@@ -108,7 +108,7 @@ def go(loader, tmpdir):
                 print(idx)
             except sqlalchemy.exc.ProgrammingError:
                 # index already exists
-                loader.db.session.rollback()
+                loader.session.rollback()
 
         # create geo_column -> gid mapping
         print("creating gid mapping tables")
@@ -123,7 +123,7 @@ def go(loader, tmpdir):
                 inner_col = geo_attr
             print(geo_table, geo_column, inner_col)
             lookup = {}
-            for gid, match in loader.db.session.query(geo_cls.gid, inner_col).all():
+            for gid, match in loader.session.query(geo_cls.gid, inner_col).all():
                 lookup[str(match)] = gid
             geo_gid_mapping[census_division] = lookup
 
@@ -240,15 +240,9 @@ def go(loader, tmpdir):
             loader.set_table_metadata(table_name, meta)
             loader.register_columns(table_name, columns)
 
-    loader.db.metadata.create_all()
-    loader.db.session.commit()
-
-    loader.create_extensions()
-    print("database initialisation complete")
-
     first_version = EALGISMetadata(name="ABS Census 2011", version="1.0", description="The full 2011 Census data dump from the ABS.")
-    loader.db.session.add(first_version)
-    loader.db.session.commit()
+    loader.session.add(first_version)
+    loader.session.commit()
     print("created metadata record - version %s in `ealgis_metadata`" % (first_version.version))
 
     load_shapes()
@@ -277,7 +271,7 @@ def go(loader, tmpdir):
         if table_name not in ealgis_tables:
             try:
                 loader.db.engine.execute('ALTER TABLE %s SET SCHEMA %s;' % (table_name, schema_name))
-                loader.db.session.commit()
+                loader.session.commit()
                 print(table_name)
             except sqlalchemy.exc.ProgrammingError as e:
                 print("couldn't change schema for table: %s (%s)" % (table_name, e))
