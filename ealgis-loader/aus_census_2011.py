@@ -87,8 +87,8 @@ def go(loader, tmpdir):
             with ZipAccess(None, tmpdir, fname) as z:
                 for shpfile in z.glob("*.shp"):
                     before = set(loader.get_table_names())
-                    loader = ShapeLoader(shpfile, 4283)
-                    loader.load(eal)
+                    instance = ShapeLoader(shpfile, 4283)
+                    instance.load(loader)
                     new = list(set(loader.get_table_names()) - before)
                     assert(len(new) == 1)
                     new_tables.append(new[0])

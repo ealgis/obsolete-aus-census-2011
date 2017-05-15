@@ -4,11 +4,14 @@ import zipfile
 import sqlalchemy
 import subprocess
 import glob
-from .util import piperun, table_name_valid
+from .util import piperun, table_name_valid, make_logger
 
 from .seqclassifier import SequenceClassifier
 import sys
 import csv
+
+
+logger = make_logger(__name__)
 
 
 class LoaderException(Exception):
@@ -110,29 +113,16 @@ class ShapeLoader(GeoDataLoader):
         except IOError:
             return None
 
-    def __init__(self, shppath, srid=None, table_name=None):
+    def __init__(self, shppath, srid, table_name=None):
         self.shppath = shppath
         self.shpbase = ShapeLoader.get_file_base(shppath)
         self.shpname = os.path.basename(shppath)
         self.table_name = table_name or GeoDataLoader.generate_table_name(shppath)
         if not table_name_valid(self.table_name):
             raise LoaderException("table name is `%s' is invalid." % self.table_name)
-        prj_text = ShapeLoader.prj_text(shppath)
-        auto_srid = ShapeLoader.auto_srid(prj_text)
-        if srid is None:
-            srid = auto_srid
-        if srid is None:
-            print("can't determine srid for `%s'" % (self.shpname), file=sys.stderr)
-            print("prj text: %s" % prj_text, file=sys.stderr)
-            raise LoaderException()
-        elif auto_srid is not None and srid != auto_srid:
-            print("warning: auto srid (%s) does not match provided srid (%s) for `%s'" % (auto_srid, srid, self.shpname), file=sys.stderr)
         self.srid = srid
 
     def load(self, eal):
-        if eal.have_table(self.table_name):
-            print("already loaded: %s" % (self.table_name))
-            return
         shp_cmd = ['shp2pgsql', '-s', str(self.srid), '-t', '2D', '-I', self.shppath, self.table_name]
         os.environ['PGPASSWORD'] = eal.dbpassword()
         _, _, code = piperun(shp_cmd, [
@@ -144,7 +134,7 @@ class ShapeLoader(GeoDataLoader):
         if code != 0:
             raise LoaderException("load of %s failed." % self.shpname)
         # make the meta info
-        print("registering, table name is:", self.table_name)
+        logger.info("registering, table name is: %s" % (self.table_name))
         eal.register_table(self.table_name, geom=True, srid=self.srid, gid='gid')
 
 
@@ -157,9 +147,6 @@ class MapInfoLoader(GeoDataLoader):
             raise LoaderException("table name is `%s' is invalid." % self.table_name)
 
     def load(self, eal):
-        if eal.have_table(self.table_name):
-            print("already loaded: %s" % (self.table_name))
-            return
         ogr_cmd = [
             'ogr2ogr',
             '-f', 'postgresql',
@@ -167,13 +154,13 @@ class MapInfoLoader(GeoDataLoader):
             self.filename,
             '-nln', self.table_name,
             '-lco', 'fid=gid']
-        print(ogr_cmd, file=sys.stderr)
+        logger.debug(ogr_cmd)
         try:
             subprocess.check_call(ogr_cmd)
         except subprocess.CalledProcessError:
             raise LoaderException("load of %s failed." % os.path.basename(self.filename))
         # make the meta info
-        print("registering, table name is:", self.table_name)
+        logger.info("registering, table name is: %s" % (self.table_name))
         eal.register_table(self.table_name, geom=True, srid=self.srid, gid='gid')
 
 
@@ -186,9 +173,6 @@ class KMLLoader(GeoDataLoader):
             raise LoaderException("table name is `%s' is invalid." % self.table_name)
 
     def load(self, eal):
-        if eal.have_table(self.table_name):
-            print("already loaded: %s" % (self.table_name))
-            return
         ogr_cmd = [
             'ogr2ogr',
             '-f', 'postgresql',
@@ -197,7 +181,7 @@ class KMLLoader(GeoDataLoader):
             '-nln', self.table_name,
             '-append',
             '-lco', 'fid=gid']
-        print(ogr_cmd, file=sys.stderr)
+        logger.debug(ogr_cmd)
         try:
             subprocess.check_call(ogr_cmd)
         except subprocess.CalledProcessError:
@@ -208,7 +192,7 @@ class KMLLoader(GeoDataLoader):
             eal.db.session.delete(obj)
         eal.db.session.commit()
         # make the meta info
-        print("registering, table name is:", self.table_name)
+        logger.debug("registering, table name is: %s" % (self.table_name))
         eal.register_table(self.table_name, geom=True, srid=self.srid, gid='gid')
 
 
