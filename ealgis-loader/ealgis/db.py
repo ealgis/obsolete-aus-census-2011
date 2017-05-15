@@ -29,7 +29,7 @@ logger = make_logger(__name__)
 
 
 class EalLoader(object):
-    def __init__(self, dbname):
+    def __init__(self, dbname, mandatory_srids=None):
         def make_connection_string():
             dbuser = os.environ.get('DB_USERNAME')
             dbpassword = os.environ.get('DB_PASSWORD')
@@ -39,6 +39,7 @@ class EalLoader(object):
         self._connection_string = make_connection_string()
         self._create_database()
         self._table_names_used = Counter()
+        self._mandatory_srids = mandatory_srids
 
         self.engine = create_engine(self._connection_string)
         Session = sessionmaker()
@@ -137,6 +138,7 @@ class EalLoader(object):
         self.register_columns(table_name, [column_name, meta_dict])
 
     def repair_geometry(self, geometry_source):
+        # FIXME: clean this up, make generic: or delete, and move into loaders?
         logger.debug("running geometry QC and repair: %s" % (geometry_source.table_info.name))
         cls = self.get_table_class(geometry_source.table_info.name)
         geom_attr = getattr(cls, geometry_source.column)
@@ -202,24 +204,22 @@ class EalLoader(object):
             else:
                 geomtype = rows[0][0]
             ti.geometry_source = GeometrySource(column=column.name, geometry_type=geomtype, srid=srid, gid=gid)
-            # FIXME
-            to_generate = set()
+            to_generate = set(self._mandatory_srids)
             if srid in to_generate:
                 to_generate.remove(srid)
-            self.repair_geometry(ti.geometry_source)
             for gen_srid in to_generate:
                 self.reproject(ti.geometry_source, gen_srid)
         self.session.commit()
         return ti
 
     def get_table_info(self, table_name):
-        return TableInfo.query.filter(TableInfo.name == table_name).one()
+        return self.session.query(TableInfo).filter(TableInfo.name == table_name).one()
 
     def get_geometry_source(self, table_name):
-        return GeometrySource.query.join(GeometrySource.table_info).filter(TableInfo.name == table_name).one()
+        return self.session.query(GeometrySource).join(GeometrySource.table_info).filter(TableInfo.name == table_name).one()
 
     def get_geometry_source_by_id(self, id):
-        return GeometrySource.query.filter(GeometrySource.id == id).one()
+        return self.session.query(GeometrySource).filter(GeometrySource.id == id).one()
 
     def add_geolinkage(self, geo_table_name, geo_column, attr_table_name, attr_column):
         geo_source = self.get_geometry_source(geo_table_name)

@@ -293,7 +293,9 @@ def go(loader, tmpdir):
 
 
 if __name__ == '__main__':
-    loader = EalLoader("aucensus2011")
+    loader = EalLoader(
+        "aucensus2011",
+        mandatory_srids=[3112, 3857])
     tmpdir = "/app/tmp"
     go(loader, tmpdir)
     logger.info("OK")
