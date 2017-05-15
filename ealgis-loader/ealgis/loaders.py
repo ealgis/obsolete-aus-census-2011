@@ -110,20 +110,6 @@ class ShapeLoader(GeoDataLoader):
         except IOError:
             return None
 
-    @classmethod
-    def auto_srid(cls, prj_text):
-        if prj_text is None:
-            return None
-        # FIXME: broken right now as GDAL not available
-        import osr
-        srs = osr.SpatialReference()
-        srs.ImportFromESRI([prj_text])
-        srs.AutoIdentifyEPSG()
-        auto_srid = srs.GetAuthorityCode(None)
-        if auto_srid is not None:
-            auto_srid = int(auto_srid)
-        return auto_srid
-
     def __init__(self, shppath, srid=None, table_name=None):
         self.shppath = shppath
         self.shpbase = ShapeLoader.get_file_base(shppath)
@@ -232,8 +218,8 @@ class CSVLoader(GeoDataLoader):
         self.csvpath = csvpath
         self.pkey_column = pkey_column
 
-    def load(self, eal, column_types=None):
-        db = eal.db
+    def load(self, loader, column_types=None):
+        db = loader.db
 
         def get_column_types(header, max_rows=None):
             sql_columns = {
@@ -269,16 +255,16 @@ class CSVLoader(GeoDataLoader):
             r = csv.reader(fd)
             header = next(r)
             cols = columns(header)
-        metadata = eal.db.MetaData()
+        metadata = loader.db.MetaData()
         new_tbl = db.Table(self.table_name, metadata, *cols)
-        metadata.create_all(eal.db.engine)
-        eal.db.session.commit()
+        metadata.create_all(loader.db.engine)
+        loader.db.session.commit()
         del new_tbl
 
         # this isn't wrapped by SQLAlchemy, so we must do it ourselves;
         # invoke the Postgres CSV loader
         conn = db.session.connection()
         conn.execute('COPY %s FROM %%s CSV HEADER' % (self.table_name), (self.csvpath, ))
-        ti = eal.register_table(self.table_name)
+        ti = loader.register_table(self.table_name)
         db.session.commit()
         return ti

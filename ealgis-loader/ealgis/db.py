@@ -5,7 +5,16 @@ except ImportError:
     import json
 from sqlalchemy import inspect
 from sqlalchemy.ext.declarative import declarative_base
-import sys
+from geoalchemy2.types import Geometry
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker
+from ealgis_data_schema.schema_v1 import (
+    GeometrySource,
+    GeometrySourceProjected,
+    GeometryLinkage,
+    GeometryRelation,
+    ColumnInfo,
+    TableInfo)
 import os
 import sqlalchemy
 import hashlib
@@ -15,24 +24,12 @@ import random
 Base = declarative_base()
 
 
-class EAlGIS(object):
-    "singleton with key application (eg. database connection) state"
-    # pattern credit: http://stackoverflow.com/questions/42558/python-and-the-singleton-pattern
-    _instance = None
-
-    def __new__(cls, *args, **kwargs):
-        if not cls._instance:
-            cls._instance = super(EAlGIS, cls).__new__(cls, *args, **kwargs)
-            cls._instance._made = False
-        return cls._instance
-
+class EalLoader(object):
     def __init__(self):
-        # don't want to construct multiple times
-        if self._made:
-            return
-        self._made = True
-        self.app = self._generate_app()
-        self.datainfo = None
+        self.db = create_engine(self._connection_string())
+        Session = sessionmaker()
+        Session.configure(bind=self.db)
+        self.session = Session()
 
     def _connection_string(self):
         # try and autoconfigure for running under docker
@@ -43,104 +40,6 @@ class EAlGIS(object):
             return 'postgres://%s:%s@%s:5432/ealgis' % (dbuser, dbpassword, dbhost)
         return 'postgres:///ealgis'
 
-    def _generate_app(self):
-        app = Flask(__name__)
-        app.wsgi_app = ReverseProxied(app.wsgi_app)
-        app.config['PROPAGATE_EXCEPTIONS'] = True
-        app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
-        app.config['SQLALCHEMY_DATABASE_URI'] = self._connection_string()
-
-        return app
-
-    def create_extensions(self):
-        extensions = ('postgis', 'postgis_topology', 'citext', 'hstore')
-        for extension in extensions:
-            try:
-                self.db.engine.execute('CREATE EXTENSION %s;' % extension)
-                db.session.commit()
-            except sqlalchemy.exc.ProgrammingError as e:
-                if 'already exists' not in str(e):
-                    print("couldn't load: %s (%s)" % (extension, e))
-
-    def get_datainfo(self):
-        """grab a representation of the data available in the database
-        result is cached, so after first call this is fast"""
-
-        def dump_linkage(linkage):
-            name = linkage.attribute_table.name
-            if linkage.attribute_table.metadata_json is not None:
-                obj = json.loads(linkage.attribute_table.metadata_json)
-            else:
-                obj = {}
-            obj['_id'] = linkage.id
-            return name, obj
-
-        def dump_source(source):
-            if source.table_info.metadata_json is not None:
-                source_info = json.loads(source.table_info.metadata_json)
-            else:
-                source_info = {'description': source.table_info.name}
-            source_info['_id'] = source.id
-
-            # source_info['tables'] = dict(dump_linkage(t) for t in source.linkages)
-            source_info['type'] = source.geometry_type
-            return source_info
-
-        def make_datainfo():
-            # our geography sources
-            info = {}
-            for source in GeometrySource.query.all():
-                name = source.table_info.name
-                info[name] = dump_source(source)
-            return info
-
-        if self.datainfo is None:
-            self.datainfo = make_datainfo()
-        return self.datainfo
-
-    def serve(self):
-        self.cache = {}
-        print("%d >> spinning up" % (os.getpid()))
-        # prime datainfo
-        self.get_datainfo()
-        print("%d >> ready" % (os.getpid()))
-        return self.app
-
-    def set_setting(self, k, v):
-        try:
-            setting = self.db.session.query(Setting).filter(Setting.key == k).one()
-            setting.value = v
-            self.db.session.commit()
-        except sqlalchemy.orm.exc.NoResultFound:
-            setting = Setting(key=k, value=v)
-            self.db.session.add(setting)
-            self.db.session.commit()
-
-    def clear_setting(self, k):
-        try:
-            setting = self.db.session.query(Setting).filter(Setting.key == k).one()
-            self.db.session.delete(setting)
-            self.db.session.commit()
-        except sqlalchemy.orm.exc.NoResultFound:
-            pass
-
-    def get_setting(self, k, d=None):
-        try:
-            setting = self.db.session.query(Setting).filter(Setting.key == k).one()
-            return setting.value
-        except sqlalchemy.orm.exc.NoResultFound:
-            if d is None:
-                raise KeyError()
-            return d
-
-    def _get_metadata(self):
-        metadata = db.MetaData(bind=db.engine)
-        metadata.reflect()
-        return metadata
-
-    def metadata_dirty(self):
-        self._metadata = None
-    
     def engineurl(self):
         return self.db.engine.url
 
@@ -167,30 +66,13 @@ class EAlGIS(object):
             return False
 
     def get_table(self, table_name):
-        return sqlalchemy.Table(table_name, sqlalchemy.MetaData(), autoload=True, autoload_with=db.engine)
+        return sqlalchemy.Table(table_name, sqlalchemy.MetaData(), autoload=True, autoload_with=self.db.engine)
 
     def get_table_names(self):
         "this is a more lightweight approach to getting table names from the db that avoids all of that messy reflection"
         "c.f. http://docs.sqlalchemy.org/en/rel_0_9/core/reflection.html?highlight=inspector#fine-grained-reflection-with-inspector"
         inspector = inspect(db.engine)
         return inspector.get_table_names()
-
-    def unload(self, table_name):
-        "drop a table and all associated EAlGIS information"
-        try:
-            ti = self.get_table_info(table_name)
-        except sqlalchemy.orm.exc.NoResultFound:
-            print("table `%s' is not registered with EAlGIS, unload request ignored." % table_name, file=sys.stderr)
-            return False
-        try:
-            tbl = self.get_table(table_name)
-            tbl.drop(self.db.engine)
-            self.db.session.delete(ti)
-            self.db.session.commit()
-            return True
-        except sqlalchemy.exc.NoSuchTableError:
-            print("mystery unregister bug", file=sys.stderr)
-            return False
 
     def get_table_class(self, table_name):
         # nothing bad happens if there is a clash, but it produces
@@ -225,17 +107,6 @@ class EAlGIS(object):
 
     def register_column(self, table_name, column_name, meta_dict):
         self.register_columns(table_name, [column_name, meta_dict])
-
-    def required_srids(self):
-        srids = set()
-
-        def add_srid(s):
-            if s is not None:
-                srids.add(int(s))
-
-        add_srid(self.get_setting('projected_srid', None))
-        add_srid(self.get_setting('map_srid', None))
-        return srids
 
     def repair_geometry(self, geometry_source):
         print("running geometry QC and repair:", geometry_source.table_info.name)
@@ -286,7 +157,6 @@ class EAlGIS(object):
         self.db.session.commit()
 
     def register_table(self, table_name, geom=False, srid=None, gid=None):
-        self.metadata_dirty()
         ti = TableInfo(name=table_name)
         self.db.session.add(ti)
         if geom:
@@ -304,7 +174,8 @@ class EAlGIS(object):
             else:
                 geomtype = rows[0][0]
             ti.geometry_source = GeometrySource(column=column.name, geometry_type=geomtype, srid=srid, gid=gid)
-            to_generate = self.required_srids()
+            # FIXME
+            to_generate = set()
             if srid in to_generate:
                 to_generate.remove(srid)
             self.repair_geometry(ti.geometry_source)
@@ -321,26 +192,6 @@ class EAlGIS(object):
 
     def get_geometry_source_by_id(self, id):
         return GeometrySource.query.filter(GeometrySource.id == id).one()
-
-    def resolve_attribute(self, geometry_source, attribute):
-        attribute = attribute.lower()  # upper case tables or columns seem unlikely, but a possible FIXME
-        # supports table_name.column_name OR just column_name
-        s = attribute.split('.', 1)
-        q = self.db.session.query(ColumnInfo, GeometryLinkage.id).join(TableInfo).join(GeometryLinkage)
-        if len(s) == 2:
-            q = q.filter(TableInfo.name == s[0])
-            attr_name = s[1]
-        else:
-            attr_name = s[0]
-        q = q.filter(GeometryLinkage.geometry_source == geometry_source).filter(ColumnInfo.name == attr_name)
-        matches = q.all()
-        if len(matches) > 1:
-            raise TooManyMatches(attribute)
-        elif len(matches) == 0:
-            raise NoMatches(attribute)
-        else:
-            ci, linkage_id = matches[0]
-            return GeometryLinkage.query.get(linkage_id), ci
 
     def add_geolinkage(self, geo_table_name, geo_column, attr_table_name, attr_column):
         geo_source = self.get_geometry_source(geo_table_name)
@@ -360,8 +211,3 @@ class EAlGIS(object):
                 GeometryRelation.overlaps_with_id == to_source.id).one()
         except sqlalchemy.orm.exc.NoResultFound:
             return None
-
-    def recompile_all(self):
-        for defn in MapDefinition.query.all():
-            config = defn.get()
-            defn.set(config, force=True)
