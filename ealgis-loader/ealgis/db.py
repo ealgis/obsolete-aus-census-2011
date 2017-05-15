@@ -6,7 +6,7 @@ except ImportError:
 from sqlalchemy import inspect
 from geoalchemy2.types import Geometry
 from sqlalchemy import create_engine
-from sqlalchemy_utils import database_exists, create_database
+from sqlalchemy_utils import database_exists, create_database, drop_database
 from sqlalchemy.orm import sessionmaker
 from ealgis_data_schema.schema_v1 import (
     Base,
@@ -26,51 +26,51 @@ from .util import make_logger
 
 logger = make_logger(__name__)
 
+
 class EalLoader(object):
-    def __init__(self):
-        # loaders are supposed to be one-shot, so fail hard if the DB is already there
+    def __init__(self, dbname):
+        def make_connection_string():
+            dbuser = os.environ.get('DB_USERNAME')
+            dbpassword = os.environ.get('DB_PASSWORD')
+            dbhost = os.environ.get('DB_HOST')
+            from secrets import token_hex
+            scratch = token_hex(16)
+            return 'postgres://%s:%s@%s:5432/%s' % (dbuser, dbpassword, dbhost, scratch)
+
+        self._connection_string = make_connection_string()
         self._create_database()
 
-        self.db = create_engine(self._connection_string())
+        self.engine = create_engine(self._connection_string)
+        Base.metadata.create_all(self.engine)
         Session = sessionmaker()
-        Session.configure(bind=self.db)
+        Session.configure(bind=self.engine)
         self.session = Session()
-        Base.metadata.create_all(self.db)
 
     def _create_database(self):
         # Initialise the database
-        if database_exists(self._connection_string()):
-            raise Exception("the dataloader database already exists - it should be nuked after each load, so this probably means that a data load failed")
-        else:
-            create_database(self._connection_string())
-            logger.debug("dataloader database created")
-
-    def _connection_string(self):
-        # try and autoconfigure for running under docker
-        dbuser = os.environ.get('DB_USERNAME')
-        dbpassword = os.environ.get('DB_PASSWORD')
-        dbhost = os.environ.get('DB_HOST')
-        if dbuser and dbpassword and dbhost:
-            return 'postgres://%s:%s@%s:5432/ealgis' % (dbuser, dbpassword, dbhost)
-        return 'postgres:///ealgis'
+        if database_exists(self._connection_string):
+            logger.info("database `%s' already exists: deleting.")
+            drop_database(self.engineurl())
+        create_database(self._connection_string)
+        logger.debug("dataloader database created")
 
     def engineurl(self):
-        return self.db.engine.url
+        return self.engine.engine.url
 
     def dbname(self):
-        return self.db.engine.url.database
+        return self.engine.engine.url.database
 
     def dbhost(self):
-        return self.db.engine.url.host
+        return self.engine.engine.url.host
 
     def dbuser(self):
-        return self.db.engine.url.username
+        return self.engine.engine.url.username
 
     def dbport(self):
-        return self.db.engine.url.port
+        return self.engine.engine.url.port
 
     def dbpassword(self):
-        return self.db.engine.url.password
+        return self.engine.engine.url.password
 
     def have_table(self, table_name):
         try:
@@ -80,12 +80,12 @@ class EalLoader(object):
             return False
 
     def get_table(self, table_name):
-        return sqlalchemy.Table(table_name, sqlalchemy.MetaData(), autoload=True, autoload_with=self.db.engine)
+        return sqlalchemy.Table(table_name, sqlalchemy.MetaData(), autoload=True, autoload_with=self.engine.engine)
 
     def get_table_names(self):
         "this is a more lightweight approach to getting table names from the db that avoids all of that messy reflection"
         "c.f. http://docs.sqlalchemy.org/en/rel_0_9/core/reflection.html?highlight=inspector#fine-grained-reflection-with-inspector"
-        inspector = inspect(self.db.engine)
+        inspector = inspect(self.engine.engine)
         return inspector.get_table_names()
 
     def get_table_class(self, table_name):
@@ -110,14 +110,14 @@ class EalLoader(object):
     def set_table_metadata(self, table_name, meta_dict):
         ti = self.get_table_info(table_name)
         ti.metadata_json = json.dumps(meta_dict)
-        self.db.session.commit()
+        self.engine.session.commit()
 
     def register_columns(self, table_name, columns):
         ti = self.get_table_info(table_name)
         for column_name, meta_dict in columns:
             ci = ColumnInfo(name=column_name, table_info=ti, metadata_json=json.dumps(meta_dict))
-            self.db.session.add(ci)
-        self.db.session.commit()
+            self.engine.session.add(ci)
+        self.engine.session.commit()
 
     def register_column(self, table_name, column_name, meta_dict):
         self.register_columns(table_name, [column_name, meta_dict])
@@ -126,7 +126,7 @@ class EalLoader(object):
         logger.debug("running geometry QC and repair:", geometry_source.table_info.name)
         cls = self.get_table_class(geometry_source.table_info.name)
         geom_attr = getattr(cls, geometry_source.column)
-        self.db.session.execute(sqlalchemy.update(
+        self.engine.session.execute(sqlalchemy.update(
             cls.__table__, values={
                 geom_attr: sqlalchemy.func.st_multi(sqlalchemy.func.st_buffer(geom_attr, 0))
             }).where(sqlalchemy.func.st_isvalid(geom_attr) == False))  # noqa
@@ -134,18 +134,18 @@ class EalLoader(object):
     def reproject(self, geometry_source, to_srid):
         # add the geometry column
         new_column = "%s_%d" % (geometry_source.column, to_srid)
-        self.db.session.execute(sqlalchemy.func.addgeometrycolumn(
+        self.engine.session.execute(sqlalchemy.func.addgeometrycolumn(
             geometry_source.table_info.name,
             new_column,
             to_srid,
             geometry_source.geometry_type,
             2))  # fixme ndim=2 shouldn't be hard-coded
-        self.db.session.commit()
+        self.engine.session.commit()
         # committed, so we can introspect it, and then transform original
         # geometry data to this SRID
         cls = self.get_table_class(geometry_source.table_info.name)
         tbl = cls.__table__
-        self.db.session.execute(
+        self.engine.session.execute(
             sqlalchemy.update(
                 tbl, values={
                     getattr(tbl.c, new_column):
@@ -159,20 +159,20 @@ class EalLoader(object):
             geometry_source_id=geometry_source.id,
             srid=to_srid,
             column=new_column)
-        self.db.session.add(proj_info)
+        self.engine.session.add(proj_info)
         # make a geometry index on this
-        self.db.session.commit()
-        self.db.session.execute("CREATE INDEX %s ON %s USING gist ( %s )" % (
+        self.engine.session.commit()
+        self.engine.session.execute("CREATE INDEX %s ON %s USING gist ( %s )" % (
             "%s_%s_gist" % (
                 geometry_source.table_info.name,
                 new_column),
             geometry_source.table_info.name,
             new_column))
-        self.db.session.commit()
+        self.engine.session.commit()
 
     def register_table(self, table_name, geom=False, srid=None, gid=None):
         ti = TableInfo(name=table_name)
-        self.db.session.add(ti)
+        self.engine.session.add(ti)
         if geom:
             column = self.geom_column(table_name)
             if column is None:
@@ -180,7 +180,7 @@ class EalLoader(object):
             # figure out what type of geometry this is
             qstr = 'SELECT geometrytype(%s) as geomtype FROM %s WHERE %s IS NOT null GROUP BY geomtype' % \
                 (column.name, table_name, column.name)
-            conn = self.db.session.connection()
+            conn = self.engine.session.connection()
             res = conn.execute(qstr)
             rows = res.fetchall()
             if len(rows) != 1:
@@ -195,7 +195,7 @@ class EalLoader(object):
             self.repair_geometry(ti.geometry_source)
             for gen_srid in to_generate:
                 self.reproject(ti.geometry_source, gen_srid)
-        self.db.session.commit()
+        self.engine.session.commit()
         return ti
 
     def get_table_info(self, table_name):
@@ -215,12 +215,12 @@ class EalLoader(object):
             geo_column=geo_column,
             attribute_table=attr_table,
             attr_column=attr_column)
-        self.db.session.add(linkage)
-        self.db.session.commit()
+        self.engine.session.add(linkage)
+        self.engine.session.commit()
 
     def get_geometry_relation(self, from_source, to_source):
         try:
-            return self.db.session.query(GeometryRelation).filter(
+            return self.engine.session.query(GeometryRelation).filter(
                 GeometryRelation.geo_source_id == from_source.id,
                 GeometryRelation.overlaps_with_id == to_source.id).one()
         except sqlalchemy.orm.exc.NoResultFound:

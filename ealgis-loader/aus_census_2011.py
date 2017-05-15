@@ -23,7 +23,7 @@ logger = make_logger(__name__)
 
 
 def go(loader, tmpdir):
-    census_dir = '/app/data/ealgis-aus-census-2011-master/2011 Datapacks BCP_IP_TSP_PEP_ECP_WPP_ERP_Release 3'
+    census_dir = '/app/data/2011 Datapacks BCP_IP_TSP_PEP_ECP_WPP_ERP_Release 3'
     release = '3'
     schema_name = "aus_census_2011"
 
@@ -291,12 +291,9 @@ def go(loader, tmpdir):
         logger.info("load with: pg_restore --username=user --dbname=db /path/to/%s" % schema_name)
         logger.info("then run VACUUM ANALYZE;")
 
-    logger.info("nuking the database")
-    drop_database(loader.engineurl())
-
 
 if __name__ == '__main__':
-    loader = EalLoader()
+    loader = EalLoader("aucensus2011")
     tmpdir = "/app/tmp"
     go(loader, tmpdir)
     logger.info("OK")
