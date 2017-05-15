@@ -7,6 +7,7 @@ from sqlalchemy import inspect
 from sqlalchemy.ext.declarative import declarative_base
 from geoalchemy2.types import Geometry
 from sqlalchemy import create_engine
+from sqlalchemy_utils import database_exists, create_database
 from sqlalchemy.orm import sessionmaker
 from ealgis_data_schema.schema_v1 import (
     GeometrySource,
@@ -26,10 +27,22 @@ Base = declarative_base()
 
 class EalLoader(object):
     def __init__(self):
+        # loaders are supposed to be one-shot, so fail hard if the DB is already there
+        self._create_database()
+
         self.db = create_engine(self._connection_string())
         Session = sessionmaker()
         Session.configure(bind=self.db)
         self.session = Session()
+        Base.metadata.create_all(self.db)
+
+    def _create_database(self):
+        # Initialise the database
+        if database_exists(self._connection_string()):
+            raise Exception("the dataloader database already exists - it should be nuked after each load, so this probably means that a data load failed")
+        else:
+            create_database(self._connection_string())
+            print("dataloader database created")
 
     def _connection_string(self):
         # try and autoconfigure for running under docker
@@ -71,7 +84,7 @@ class EalLoader(object):
     def get_table_names(self):
         "this is a more lightweight approach to getting table names from the db that avoids all of that messy reflection"
         "c.f. http://docs.sqlalchemy.org/en/rel_0_9/core/reflection.html?highlight=inspector#fine-grained-reflection-with-inspector"
-        inspector = inspect(db.engine)
+        inspector = inspect(self.db.engine)
         return inspector.get_table_names()
 
     def get_table_class(self, table_name):

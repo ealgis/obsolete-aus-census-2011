@@ -5,12 +5,12 @@
 #
 
 from ealgis.loaders import ZipAccess, ShapeLoader, RewrittenCSV, CSVLoader
+from sqlalchemy_utils import drop_database
 from ealgis.util import alistdir
 from ealgis.db import EalLoader
 from ealgis_data_schema.schema_v1 import (EALGISMetadata)
 from ealgis.util import cmdrun
 from sqlalchemy.schema import CreateSchema
-from sqlalchemy_utils import database_exists, create_database, drop_database
 import re
 import os
 import glob
@@ -240,14 +240,7 @@ def go(loader, tmpdir):
             loader.set_table_metadata(table_name, meta)
             loader.register_columns(table_name, columns)
 
-    # Initialise the database
-    if database_exists(loader.engineurl()):
-        raise Exception("the dataloader database already exists - it should be nuked after each load, so this probably means that a data load failed")
-    else:
-        create_database(loader.engineurl())
-        print("dataloader database created")
-
-    loader.db.create_all()
+    loader.db.metadata.create_all()
     loader.db.session.commit()
 
     loader.create_extensions()
