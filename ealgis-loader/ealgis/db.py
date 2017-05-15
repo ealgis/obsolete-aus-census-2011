@@ -16,6 +16,7 @@ from ealgis_data_schema.schema_v1 import (
     GeometryRelation,
     ColumnInfo,
     TableInfo)
+from collections import Counter
 import os
 import sqlalchemy
 import hashlib
@@ -37,6 +38,7 @@ class EalLoader(object):
 
         self._connection_string = make_connection_string()
         self._create_database()
+        self._table_names_used = Counter()
 
         self.engine = create_engine(self._connection_string)
         Session = sessionmaker()
@@ -102,7 +104,8 @@ class EalLoader(object):
     def get_table_class(self, table_name):
         # nothing bad happens if there is a clash, but it produces
         # warnings
-        nm = str('tbl_%s_%s' % (table_name, hashlib.sha1("%s%g%g" % (table_name, random.random(), time.time())).hexdigest()[:8]))
+        self._table_names_used[table_name] += 1
+        nm = "Table_%s_%d" % (table_name, self._table_names_used[table_name])
         return type(nm, (Base,), {'__table__': self.get_table(table_name)})
 
     def geom_column(self, table_name):
@@ -134,7 +137,7 @@ class EalLoader(object):
         self.register_columns(table_name, [column_name, meta_dict])
 
     def repair_geometry(self, geometry_source):
-        logger.debug("running geometry QC and repair:", geometry_source.table_info.name)
+        logger.debug("running geometry QC and repair: %s" % (geometry_source.table_info.name))
         cls = self.get_table_class(geometry_source.table_info.name)
         geom_attr = getattr(cls, geometry_source.column)
         self.session.execute(sqlalchemy.update(
