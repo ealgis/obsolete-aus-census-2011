@@ -148,6 +148,8 @@ def go(loader, tmpdir):
         linkage_pending = []
 
         for i, csv_path in enumerate(csv_files):
+            if i > 3:
+                break
             logger.info("[%d/%d] %s: %s" % (i + 1, len(csv_files), packname, os.path.basename(csv_path)))
             table_name = table_re.match(os.path.split(csv_path)[-1]).groups()[0].lower()
             data_tables.append(table_name)
@@ -262,14 +264,14 @@ def go(loader, tmpdir):
         "Metadata_2011_XCP_DataPack.xlsx")
 
     logger.info("create schema %s" % schema_name)
-    loader.db.engine.execute(CreateSchema(schema_name))
+    loader.engine.execute(CreateSchema(schema_name))
 
     logger.info("move tables to standalone schema")
     ealgis_tables = ["user", "setting", "geometry_touches", "map_definition", "geometry_intersection", "geometry_relation", "spatial_ref_sys"]
     for table_name in loader.get_table_names():
         if table_name not in ealgis_tables:
             try:
-                loader.db.engine.execute('ALTER TABLE %s SET SCHEMA %s;' % (table_name, schema_name))
+                loader.engine.execute('ALTER TABLE %s SET SCHEMA %s;' % (table_name, schema_name))
                 loader.session.commit()
                 logger.info(table_name)
             except sqlalchemy.exc.ProgrammingError as e:

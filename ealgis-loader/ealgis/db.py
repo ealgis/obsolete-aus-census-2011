@@ -58,7 +58,7 @@ class EalLoader(object):
         logger.debug("dataloader database created")
 
     def _create_extensions(self):
-        extensions = ('postgis', 'postgis_topology', 'citext', 'hstore')
+        extensions = ('postgis', 'postgis_topology')
         for extension in extensions:
             try:
                 logger.info("creating extension: %s" % extension)

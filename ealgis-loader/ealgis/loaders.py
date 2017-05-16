@@ -7,7 +7,6 @@ import glob
 from .util import piperun, table_name_valid, make_logger
 
 from .seqclassifier import SequenceClassifier
-import sys
 import csv
 
 
@@ -203,13 +202,11 @@ class CSVLoader(GeoDataLoader):
         self.pkey_column = pkey_column
 
     def load(self, loader, column_types=None):
-        engine = loader.engine
-
         def get_column_types(header, max_rows=None):
             sql_columns = {
-                int: db.Integer,
-                float: db.Float,
-                str: db.Text
+                int: sqlalchemy.types.Integer,
+                float: sqlalchemy.types.Float,
+                str: sqlalchemy.types.Text
             }
             if column_types is not None:
                 return [sql_columns[t] for t in column_types]
@@ -225,7 +222,7 @@ class CSVLoader(GeoDataLoader):
             coldefs = []
             for idx, (column_name, ty) in enumerate(zip(header, get_column_types(header))):
                 make_index = idx == self.pkey_column
-                coldefs.append(db.Column(
+                coldefs.append(sqlalchemy.Column(
                     column_name.lower(),
                     ty,
                     index=make_index,
@@ -239,16 +236,15 @@ class CSVLoader(GeoDataLoader):
             r = csv.reader(fd)
             header = next(r)
             cols = columns(header)
-        metadata = loader.db.MetaData()
-        new_tbl = db.Table(self.table_name, metadata, *cols)
+        metadata = sqlalchemy.MetaData()
+        new_tbl = sqlalchemy.Table(self.table_name, metadata, *cols)
         metadata.create_all(loader.engine)
         loader.session.commit()
         del new_tbl
 
-        # this isn't wrapped by SQLAlchemy, so we must do it ourselves;
         # invoke the Postgres CSV loader
-        conn = db.session.connection()
+        conn = loader.session.connection()
         conn.execute('COPY %s FROM %%s CSV HEADER' % (self.table_name), (self.csvpath, ))
         ti = loader.register_table(self.table_name)
-        db.session.commit()
+        loader.session.commit()
         return ti

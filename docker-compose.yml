@@ -2,6 +2,8 @@ version: '2'
 services:
   db:
     image: mdillon/postgis:9.6
+    volumes:
+      - ./:/app
     ports:
       - "5432:5432"
 
