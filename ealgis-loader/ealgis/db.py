@@ -7,66 +7,77 @@ from sqlalchemy import inspect
 from geoalchemy2.types import Geometry
 from sqlalchemy import create_engine
 from sqlalchemy_utils import database_exists, create_database, drop_database
+from sqlalchemy.schema import CreateSchema
 from sqlalchemy.orm import sessionmaker
-from ealgis_data_schema.schema_v1 import (
-    Base,
-    GeometrySource,
-    GeometrySourceProjected,
-    GeometryLinkage,
-    GeometryRelation,
-    ColumnInfo,
-    TableInfo)
+from sqlalchemy.sql import exists, select
+from ealgis_data_schema.schema_v1 import store
 from collections import Counter
 import os
 import sqlalchemy
-import hashlib
-import time
-import random
 from .util import make_logger
 
 
 logger = make_logger(__name__)
 
 
-class EalLoader(object):
-    def __init__(self, dbname, mandatory_srids=None):
+class DataLoaderFactory:
+    def __init__(self, db_name):
         def make_connection_string():
             dbuser = os.environ.get('DB_USERNAME')
             dbpassword = os.environ.get('DB_PASSWORD')
             dbhost = os.environ.get('DB_HOST')
-            return 'postgres://%s:%s@%s:5432/%s' % (dbuser, dbpassword, dbhost, dbname)
+            return 'postgres://%s:%s@%s:5432/%s' % (dbuser, dbpassword, dbhost, db_name)
 
-        self._connection_string = make_connection_string()
-        self._create_database()
-        self._table_names_used = Counter()
-        self._mandatory_srids = mandatory_srids
+        # create database and connect
+        connection_string = make_connection_string()
+        self._engine = create_engine(connection_string)
+        self._create_database(connection_string)
+        self._create_extensions(connection_string)
 
-        self.engine = create_engine(self._connection_string)
-        Session = sessionmaker()
-        Session.configure(bind=self.engine)
-        self.session = Session()
+    def make_loader(self, schema_name, **loader_kwargs):
+        self._create_schema(schema_name)
+        return DataLoader(self._engine, schema_name, **loader_kwargs)
 
-        self._create_extensions()
-        Base.metadata.create_all(self.engine)
-
-    def _create_database(self):
+    def _create_database(self, connection_string):
         # Initialise the database
-        if database_exists(self._connection_string):
+        if database_exists(connection_string):
             logger.info("database already exists: deleting.")
-            drop_database(self._connection_string)
-        create_database(self._connection_string)
+            drop_database(connection_string)
+        create_database(connection_string)
         logger.debug("dataloader database created")
 
-    def _create_extensions(self):
+    def _create_schema(self, schema_name):
+        logger.info("create schema: %s" % schema_name)
+        self._engine.execute(CreateSchema(schema_name))
+
+    def _create_extensions(self, connection_string):
         extensions = ('postgis', 'postgis_topology')
         for extension in extensions:
             try:
                 logger.info("creating extension: %s" % extension)
-                self.engine.execute('CREATE EXTENSION %s;' % extension)
-                self.session.commit()
+                self._engine.execute('CREATE EXTENSION %s;' % extension)
             except sqlalchemy.exc.ProgrammingError as e:
                 if 'already exists' not in str(e):
                     print("couldn't load: %s (%s)" % (extension, e))
+
+
+class DataLoader:
+    def __init__(self, engine, schema_name, mandatory_srids=None):
+        self.engine = engine
+        Session = sessionmaker()
+        Session.configure(bind=self.engine)
+        self.session = Session()
+
+        # make extensions, create target schema
+        self._schema_name = schema_name
+
+        self._table_names_used = Counter()
+        self._mandatory_srids = mandatory_srids
+
+        Base, classes = store.load_schema(schema_name)
+        for attr_name, cls in classes.items():
+            setattr(self, attr_name, cls)
+        Base.metadata.create_all(self.engine)
 
     def engineurl(self):
         return self.engine.engine.url
@@ -82,6 +93,9 @@ class EalLoader(object):
 
     def dbport(self):
         return self.engine.engine.url.port
+    
+    def dbschema(self):
+        return self._schema_name
 
     def dbpassword(self):
         return self.engine.engine.url.password

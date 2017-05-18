@@ -5,7 +5,6 @@
 #
 
 from ealgis.loaders import ZipAccess, ShapeLoader, RewrittenCSV, CSVLoader
-from sqlalchemy_utils import drop_database
 from ealgis.util import alistdir, make_logger
 from ealgis.db import EalLoader
 from ealgis_data_schema.schema_v1 import (EALGISMetadata)

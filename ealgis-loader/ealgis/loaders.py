@@ -112,7 +112,8 @@ class ShapeLoader(GeoDataLoader):
         except IOError:
             return None
 
-    def __init__(self, shppath, srid, table_name=None):
+    def __init__(self, schema_name, shppath, srid, table_name=None):
+        self.schema_name = schema_name
         self.shppath = shppath
         self.shpbase = ShapeLoader.get_file_base(shppath)
         self.shpname = os.path.basename(shppath)
@@ -122,7 +123,7 @@ class ShapeLoader(GeoDataLoader):
         self.srid = srid
 
     def load(self, eal):
-        shp_cmd = ['shp2pgsql', '-s', str(self.srid), '-t', '2D', '-I', self.shppath, self.table_name]
+        shp_cmd = ['shp2pgsql', '-s', str(self.srid), '-t', '2D', '-I', self.shppath, self.schema_name + '.' + self.table_name]
         os.environ['PGPASSWORD'] = eal.dbpassword()
         _, _, code = piperun(shp_cmd, [
             'psql',
