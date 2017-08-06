@@ -18,13 +18,13 @@ logger = make_logger(__name__)
 
 
 def main():
+    schema_name = "aus_census_2011_shapes"
     factory = DataLoaderFactory("scratch_census_2011")
-    loader = factory.make_loader("au_census_2011_shapes", mandatory_srids=[3112, 3857])
+    loader = factory.make_loader(schema_name, mandatory_srids=[3112, 3857])
 
     tmpdir = "/app/tmp"
 
     census_dir = '/app/data/2011 Datapacks BCP_IP_TSP_PEP_ECP_WPP_ERP_Release 3'
-    schema_name = "aus_census_2011_shapes"
 
     shp_linkage = {
         'ced': ('ced_code', None, 'Commonwealth Electoral Division'),
@@ -77,21 +77,28 @@ def main():
                     new = list(set(loader.get_table_names()) - before)
                     assert(len(new) == 1)
                     new_tables.append(new[0])
+            break
 
         logger.info("loaded shapefile OK")
+
+        logger.debug(new_tables)
 
         logger.info("creating shape indexes")
         # create column indexes on shape linkage
         loader.session.commit()
         for census_division in shp_linkage:
             pfx = "%s_2011" % (census_division)
-            table = [t for t in new_tables if t.startswith(pfx)][0]
+            matches = [t for t in new_tables if t.startswith(pfx)]
+            if not matches:
+                logger.debug('cannot find match for prefix: %s' % pfx)
+                continue
+            table = matches[0]
+            logger.debug('creating index for %s' % (table))
             info = loader.get_table(table)
             col, _, descr = shp_linkage[census_division]
             loader.set_table_metadata(table, {'description': descr})
             idx = sqlalchemy.Index("%s_%s_idx" % (table, col), info.columns[col], unique=True)
             idx.create(loader.engine)
-            logger.debug(repr(idx))
 
     loader.session.execute(
         loader.tables['ealgis_metadata'].insert().values(
@@ -106,6 +113,7 @@ def main():
     logger.info("dumping database")
     os.environ['PGPASSWORD'] = loader.dbpassword()
     shp_cmd = ["pg_dump", str(loader.engineurl()), "--schema=%s" % schema_name, "--format=c", "--file=/app/tmp/%s" % schema_name]
+    logger.debug(shp_cmd)
 
     stdout, stderr, code = cmdrun(shp_cmd)
     if code != 0:

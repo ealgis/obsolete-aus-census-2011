@@ -79,6 +79,7 @@ class DataLoader:
         metadata, tables = store.load_schema(schema_name)
         metadata.create_all(self.engine)
         self.tables = dict((t.name, t) for t in tables)
+        self.classes = dict((t.name, self.get_table_class(t.name)) for t in tables)
 
     def engineurl(self):
         return self.engine.engine.url
@@ -94,7 +95,7 @@ class DataLoader:
 
     def dbport(self):
         return self.engine.engine.url.port
-    
+
     def dbschema(self):
         return self._schema_name
 
@@ -118,8 +119,7 @@ class DataLoader:
         return inspector.get_table_names(schema=self._schema_name)
 
     def get_table_class(self, table_name):
-        # nothing bad happens if there is a clash, but it produces
-        # warnings
+        # nothing bad happens if there is a clash, but it produces warnings
         self._table_names_used[table_name] += 1
         nm = "Table_%s_%d" % (table_name, self._table_names_used[table_name])
         return type(nm, (Base,), {'__table__': self.get_table(table_name)})
@@ -145,8 +145,11 @@ class DataLoader:
     def register_columns(self, table_name, columns):
         ti = self.get_table_info(table_name)
         for column_name, meta_dict in columns:
-            ci = ColumnInfo(name=column_name, table_info=ti, metadata_json=json.dumps(meta_dict))
-            self.session.add(ci)
+            self.session.execute(
+                self.tables['column_info'].insert().values(
+                    name=column_name,
+                    table_info_id=ti.id,
+                    metadata_json=meta_dict))
         self.session.commit()
 
     def register_column(self, table_name, column_name, meta_dict):
@@ -164,12 +167,11 @@ class DataLoader:
 
     def reproject(self, geometry_source_id, from_column, to_srid):
         # add the geometry column
-        GeometrySource = self.get_table_class('geometry_source')
-        TableInfo = self.get_table_class('table_info')
+        GeometrySource = self.classes['geometry_source']
+        TableInfo = self.classes['table_info']
         geometry_source = self.session.query(GeometrySource).filter(GeometrySource.id == geometry_source_id).one()
         table_info = self.session.query(TableInfo).filter(TableInfo.id == geometry_source.table_info_id).one()
         new_column = "%s_%d" % (from_column, to_srid)
-        logger.debug(geometry_source.id)
         self.session.execute(sqlalchemy.func.addgeometrycolumn(
             self._schema_name,
             table_info.name,
@@ -243,15 +245,20 @@ class DataLoader:
         self.session.commit()
 
     def get_table_info(self, table_name):
+        TableInfo = self.classes['table_info']
         return self.session.query(TableInfo).filter(TableInfo.name == table_name).one()
 
     def get_geometry_source(self, table_name):
+        TableInfo = self.classes['table_info']
+        GeometrySource = self.classes['geometry_source']
         return self.session.query(GeometrySource).join(GeometrySource.table_info).filter(TableInfo.name == table_name).one()
 
     def get_geometry_source_by_id(self, id):
+        GeometrySource = self.classes['geometry_source']
         return self.session.query(GeometrySource).filter(GeometrySource.id == id).one()
 
     def add_geolinkage(self, geo_table_name, geo_column, attr_table_name, attr_column):
+        GeometryLinkage = self.classes['geometry_linkage']
         geo_source = self.get_geometry_source(geo_table_name)
         attr_table = self.get_table_info(attr_table_name)
         linkage = GeometryLinkage(
@@ -263,6 +270,7 @@ class DataLoader:
         self.session.commit()
 
     def get_geometry_relation(self, from_source, to_source):
+        GeometryRelation = self.classes['geometry_relation']
         try:
             return self.session.query(GeometryRelation).filter(
                 GeometryRelation.geo_source_id == from_source.id,
