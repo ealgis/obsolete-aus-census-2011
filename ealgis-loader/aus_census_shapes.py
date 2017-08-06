@@ -21,6 +21,8 @@ def main():
     factory = DataLoaderFactory("scratch_census_2011")
     loader = factory.make_loader("au_census_2011_shapes", mandatory_srids=[3112, 3857])
 
+    return
+
     tmpdir = "/app/tmp"
 
     census_dir = '/app/data/2011 Datapacks BCP_IP_TSP_PEP_ECP_WPP_ERP_Release 3'

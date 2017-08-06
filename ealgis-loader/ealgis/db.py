@@ -9,7 +9,6 @@ from sqlalchemy import create_engine
 from sqlalchemy_utils import database_exists, create_database, drop_database
 from sqlalchemy.schema import CreateSchema
 from sqlalchemy.orm import sessionmaker
-from sqlalchemy.sql import exists, select
 from ealgis_data_schema.schema_v1 import store
 from collections import Counter
 import os
@@ -32,7 +31,7 @@ class DataLoaderFactory:
         connection_string = make_connection_string()
         self._engine = create_engine(connection_string)
         self._create_database(connection_string)
-        self._create_extensions(connection_string)
+        # self._create_extensions(connection_string)
 
     def make_loader(self, schema_name, **loader_kwargs):
         self._create_schema(schema_name)
@@ -74,10 +73,8 @@ class DataLoader:
         self._table_names_used = Counter()
         self._mandatory_srids = mandatory_srids
 
-        Base, classes = store.load_schema(schema_name)
-        for attr_name, cls in classes.items():
-            setattr(self, attr_name, cls)
-        Base.metadata.create_all(self.engine)
+        metadata, classes = store.load_schema(schema_name)
+        metadata.create_all(self.engine)
 
     def engineurl(self):
         return self.engine.engine.url
