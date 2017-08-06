@@ -21,8 +21,6 @@ def main():
     factory = DataLoaderFactory("scratch_census_2011")
     loader = factory.make_loader("au_census_2011_shapes", mandatory_srids=[3112, 3857])
 
-    return
-
     tmpdir = "/app/tmp"
 
     census_dir = '/app/data/2011 Datapacks BCP_IP_TSP_PEP_ECP_WPP_ERP_Release 3'
@@ -95,10 +93,13 @@ def main():
             idx.create(loader.engine)
             logger.debug(repr(idx))
 
-    first_version = loader.EALGISMetadata(name="ABS Census 2011", version="1.0", description="The full 2011 Census data dump from the ABS.")
-    loader.session.add(first_version)
+    loader.session.execute(
+        loader.tables['ealgis_metadata'].insert().values(
+            name='ABS Census 2011',
+            version="1.0",
+            description="2011 Australian Census: Spatial Data"))
     loader.session.commit()
-    logger.info("created metadata record - version %s in `ealgis_metadata`" % (first_version.version))
+    logger.info("created metadata record")
 
     load_shapes()
 

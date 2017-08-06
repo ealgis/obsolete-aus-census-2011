@@ -9,11 +9,14 @@ from sqlalchemy import create_engine
 from sqlalchemy_utils import database_exists, create_database, drop_database
 from sqlalchemy.schema import CreateSchema
 from sqlalchemy.orm import sessionmaker
+from sqlalchemy.ext.declarative import declarative_base
 from ealgis_data_schema.schema_v1 import store
 from collections import Counter
 import os
 import sqlalchemy
 from .util import make_logger
+
+Base = declarative_base()
 
 
 logger = make_logger(__name__)
@@ -31,7 +34,7 @@ class DataLoaderFactory:
         connection_string = make_connection_string()
         self._engine = create_engine(connection_string)
         self._create_database(connection_string)
-        # self._create_extensions(connection_string)
+        self._create_extensions(connection_string)
 
     def make_loader(self, schema_name, **loader_kwargs):
         self._create_schema(schema_name)
@@ -73,8 +76,9 @@ class DataLoader:
         self._table_names_used = Counter()
         self._mandatory_srids = mandatory_srids
 
-        metadata, classes = store.load_schema(schema_name)
+        metadata, tables = store.load_schema(schema_name)
         metadata.create_all(self.engine)
+        self.tables = dict((t.name, t) for t in tables)
 
     def engineurl(self):
         return self.engine.engine.url
@@ -105,13 +109,13 @@ class DataLoader:
             return False
 
     def get_table(self, table_name):
-        return sqlalchemy.Table(table_name, sqlalchemy.MetaData(), autoload=True, autoload_with=self.engine.engine)
+        return sqlalchemy.Table(table_name, sqlalchemy.MetaData(), schema=self._schema_name, autoload=True, autoload_with=self.engine.engine)
 
     def get_table_names(self):
         "this is a more lightweight approach to getting table names from the db that avoids all of that messy reflection"
         "c.f. http://docs.sqlalchemy.org/en/rel_0_9/core/reflection.html?highlight=inspector#fine-grained-reflection-with-inspector"
         inspector = inspect(self.engine.engine)
-        return inspector.get_table_names()
+        return inspector.get_table_names(schema=self._schema_name)
 
     def get_table_class(self, table_name):
         # nothing bad happens if there is a clash, but it produces
@@ -158,11 +162,17 @@ class DataLoader:
                 geom_attr: sqlalchemy.func.st_multi(sqlalchemy.func.st_buffer(geom_attr, 0))
             }).where(sqlalchemy.func.st_isvalid(geom_attr) == False))  # noqa
 
-    def reproject(self, geometry_source, to_srid):
+    def reproject(self, geometry_source_id, from_column, to_srid):
         # add the geometry column
-        new_column = "%s_%d" % (geometry_source.column, to_srid)
+        GeometrySource = self.get_table_class('geometry_source')
+        TableInfo = self.get_table_class('table_info')
+        geometry_source = self.session.query(GeometrySource).filter(GeometrySource.id == geometry_source_id).one()
+        table_info = self.session.query(TableInfo).filter(TableInfo.id == geometry_source.table_info_id).one()
+        new_column = "%s_%d" % (from_column, to_srid)
+        logger.debug(geometry_source.id)
         self.session.execute(sqlalchemy.func.addgeometrycolumn(
-            geometry_source.table_info.name,
+            self._schema_name,
+            table_info.name,
             new_column,
             to_srid,
             geometry_source.geometry_type,
@@ -170,7 +180,7 @@ class DataLoader:
         self.session.commit()
         # committed, so we can introspect it, and then transform original
         # geometry data to this SRID
-        cls = self.get_table_class(geometry_source.table_info.name)
+        cls = self.get_table_class(table_info.name)
         tbl = cls.__table__
         self.session.execute(
             sqlalchemy.update(
@@ -178,35 +188,36 @@ class DataLoader:
                     getattr(tbl.c, new_column):
                     sqlalchemy.func.st_transform(
                         sqlalchemy.func.ST_Force2D(
-                            getattr(tbl.c, geometry_source.column)),
+                            getattr(tbl.c, from_column)),
                         to_srid)
                 }))
-        # record projection information in the DB
-        proj_info = GeometrySourceProjected(
-            geometry_source_id=geometry_source.id,
-            srid=to_srid,
-            column=new_column)
-        self.session.add(proj_info)
+        self.session.execute(
+            self.tables['geometry_source_column'].insert().values(
+                geometry_source_id=geometry_source_id,
+                column=new_column,
+                srid=to_srid))
         # make a geometry index on this
         self.session.commit()
-        self.session.execute("CREATE INDEX %s ON %s USING gist ( %s )" % (
+        self.session.execute("CREATE INDEX %s ON %s.%s USING gist ( %s )" % (
             "%s_%s_gist" % (
-                geometry_source.table_info.name,
+                table_info.name,
                 new_column),
-            geometry_source.table_info.name,
+            self._schema_name,
+            table_info.name,
             new_column))
         self.session.commit()
 
     def register_table(self, table_name, geom=False, srid=None, gid=None):
-        ti = TableInfo(name=table_name)
-        self.session.add(ti)
+        table_info_id, = self.session.execute(
+            self.tables['table_info'].insert().values(
+                name=table_name)).inserted_primary_key
         if geom:
             column = self.geom_column(table_name)
             if column is None:
                 raise Exception("Cannot automatically determine geometry column for `%s'" % table_name)
             # figure out what type of geometry this is
-            qstr = 'SELECT geometrytype(%s) as geomtype FROM %s WHERE %s IS NOT null GROUP BY geomtype' % \
-                (column.name, table_name, column.name)
+            qstr = 'SELECT geometrytype(%s) as geomtype FROM %s.%s WHERE %s IS NOT null GROUP BY geomtype' % \
+                (column.name, self._schema_name, table_name, column.name)
             conn = self.session.connection()
             res = conn.execute(qstr)
             rows = res.fetchall()
@@ -214,14 +225,22 @@ class DataLoader:
                 geomtype = 'GEOMETRY'
             else:
                 geomtype = rows[0][0]
-            ti.geometry_source = GeometrySource(column=column.name, geometry_type=geomtype, srid=srid, gid=gid)
+            source_id, = self.session.execute(
+                self.tables['geometry_source'].insert().values(
+                    table_info_id=table_info_id,
+                    geometry_type=geomtype,
+                    gid=gid)).inserted_primary_key
+            self.session.execute(
+                self.tables['geometry_source_column'].insert().values(
+                    geometry_source_id=source_id,
+                    column=column.name,
+                    srid=srid))
             to_generate = set(self._mandatory_srids)
             if srid in to_generate:
                 to_generate.remove(srid)
             for gen_srid in to_generate:
-                self.reproject(ti.geometry_source, gen_srid)
+                self.reproject(source_id, column.name, gen_srid)
         self.session.commit()
-        return ti
 
     def get_table_info(self, table_name):
         return self.session.query(TableInfo).filter(TableInfo.name == table_name).one()
