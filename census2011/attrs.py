@@ -29,79 +29,6 @@ def go(loader, tmpdir):
     census_division_table = {}
     geo_gid_mapping = {}
 
-    ###
-    # unfortunately straight joins shape attribute to census CSV attribute don't work nicely;
-    # after the shape load some of the attributes end up as char(9292) or some awful thing.
-    # so we do a mapping in this code to our internal gid column; which has the nice property
-    # of making things fast and obvious in production
-    ###
-
-    def mapper():
-        cls = loader.get_table_class('sa1_2011_aust')
-        loader.session.query(sqlalchemy.cast(cls.sa1_7digit, sqlalchemy.Integer()))[:10]
-
-    def load_shapes():
-        logger.debug("load shapefiles")
-        new_tables = []
-
-        def shapefiles():
-            def shape_and_proj(g):
-                for f in g:
-                    shape_name = os.path.basename(f)
-                    proj = shape_name.split('_')[1]
-                    yield f, proj
-            # favour the POW shapes over the others; release 3 eccentricity
-            projs_provided = set()
-            for fname, proj in shape_and_proj(glob.glob(os.path.join(census_dir, "Digital Boundaries/*_POW_shape.zip"))):
-                projs_provided.add(proj)
-                yield fname
-            for fname, proj in shape_and_proj(glob.glob(os.path.join(census_dir, "Digital Boundaries/*_shape.zip"))):
-                if proj not in projs_provided:
-                    yield fname
-
-        for fname in shapefiles():
-            with ZipAccess(None, tmpdir, fname) as z:
-                for shpfile in z.glob("*.shp"):
-                    before = set(loader.get_table_names())
-                    instance = ShapeLoader(shpfile, 4283)
-                    instance.load(loader)
-                    new = list(set(loader.get_table_names()) - before)
-                    assert(len(new) == 1)
-                    new_tables.append(new[0])
-
-        logger.info("loaded shapefile OK")
-
-        logger.info("creating shape indexes")
-        # create column indexes on shape linkage
-        loader.session.commit()
-        for census_division in shp_linkage:
-            pfx = "%s_2011" % (census_division)
-            table = [t for t in new_tables if t.startswith(pfx)][0]
-            census_division_table[census_division] = table
-            info = loader.get_table(table)
-            col, _, descr = shp_linkage[census_division]
-            loader.set_table_metadata(table, {'description': descr})
-            idx = sqlalchemy.Index("%s_%s_idx" % (table, col), info.columns[col], unique=True)
-            idx.create(loader.engine)
-            logger.debug(repr(idx))
-
-        # create geo_column -> gid mapping
-        logger.info("creating gid mapping tables")
-        for census_division in shp_linkage:
-            geo_table = census_division_table[census_division]
-            geo_column, geo_cast_required, _ = shp_linkage[census_division]
-            geo_cls = loader.get_table_class(geo_table)
-            geo_attr = getattr(geo_cls, geo_column)
-            if geo_cast_required is not None:
-                inner_col = sqlalchemy.cast(geo_attr, geo_cast_required)
-            else:
-                inner_col = geo_attr
-            logger.debug(repr([geo_table, geo_column, inner_col]))
-            lookup = {}
-            for gid, match in loader.session.query(geo_cls.gid, inner_col).all():
-                lookup[str(match)] = gid
-            geo_gid_mapping[census_division] = lookup
-
     data_tables = []
 
     def load_datapacks(packname):
@@ -222,8 +149,6 @@ def go(loader, tmpdir):
         description="Shapes")
 
     logger.info("created metadata record - version %s in `ealgis_metadata`" % (first_version.version))
-
-    load_shapes()
 
     load_datapacks("2011 Aboriginal and Torres Strait Islander Peoples Profile Release %s" % release)
     load_datapacks("2011 Basic Community Profile Release %s" % release)

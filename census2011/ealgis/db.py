@@ -280,16 +280,16 @@ class DataLoader:
                 GeometryRelation.overlaps_with_id == to_source.id).one()
         except sqlalchemy.orm.exc.NoResultFound:
             return None
-    
+
     def add_dependency(self, dep_name):
         dep_metadata, dep_tables = store.load_schema(dep_name)
         meta = dep_tables['ealgis_metadata']
         row = self.session.query(meta).one()
         logger.debug(row)
 
-    def set_version(self, **kwargs):
-        version = self.classes['ealgis_metadata'](**kwargs)
-        self.session.add(version)
+    def set_metadata(self, **kwargs):
+        self.session.execute(
+            self.tables['ealgis_metadata'].insert().values(**kwargs))
         self.session.commit()
 
     def result(self):

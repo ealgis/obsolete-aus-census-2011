@@ -83,10 +83,9 @@ def load_shapes(factory, census_dir, tmpdir):
             idx = sqlalchemy.Index("%s_%s_idx" % (table, col), info.columns[col], unique=True)
             idx.create(loader.engine)
 
-    loader.session.execute(
-        loader.tables['ealgis_metadata'].insert().values(
-            name='ABS Census 2011',
-            description="2011 Australian Census: Spatial Data"))
+    loader.set_metadata(
+        name='ABS Census 2011',
+        description="2011 Australian Census: Spatial Data")
     loader.session.commit()
     load_shapes()
     return loader.result()
