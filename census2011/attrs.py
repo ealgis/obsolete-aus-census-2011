@@ -9,23 +9,14 @@ import os
 import glob
 import os.path
 import openpyxl
-import sqlalchemy
 
-from .ealgis.loaders import ZipAccess, ShapeLoader, RewrittenCSV, CSVLoader
+from .ealgis.loaders import RewrittenCSV, CSVLoader
 from .ealgis.util import alistdir, make_logger
-from .ealgis.db import EalLoader
-from .ealgis.util import cmdrun
-from sqlalchemy.schema import CreateSchema
-
 
 logger = make_logger(__name__)
 
 
-def go(loader, tmpdir):
-    census_dir = '/app/data/2011 Datapacks BCP_IP_TSP_PEP_ECP_WPP_ERP_Release 3'
-    release = '3'
-    schema_name = "aus_census_2011"
-
+def load_package(loader, census_dir, tmpdir, dirname, xlsx_name):
     census_division_table = {}
     geo_gid_mapping = {}
 
@@ -143,59 +134,26 @@ def go(loader, tmpdir):
             columns = col_meta[datapack_file]
             loader.set_table_metadata(table_name, meta)
             loader.register_columns(table_name, columns)
-    
+
     loader.set_metadata(
         name="ABS Census 2011",
         description="Shapes")
 
-    logger.info("created metadata record - version %s in `ealgis_metadata`" % (first_version.version))
 
-    load_datapacks("2011 Aboriginal and Torres Strait Islander Peoples Profile Release %s" % release)
-    load_datapacks("2011 Basic Community Profile Release %s" % release)
-    load_datapacks("2011 Expanded Community Profile Release %s" % release)
-    load_datapacks("2011 Place of Enumeration Profile Release %s" % release)
-    load_datapacks("2011 Time Series Profile Release %s" % release)
-    load_datapacks("2011 Working Population Profile Release %s" % release)
-
-    load_metadata(
-        "Metadata_2011_BCP_DataPack.xlsx",
-        "Metadata_2011_IP_DataPack.xlsx",
-        "Metadata_2011_PEP_DataPack.xlsx",
-        "Metadata_2011_TSP_DataPack.xlsx",
-        "Metadata_2011_WPP_DataPack.xlsx",
-        "Metadata_2011_XCP_DataPack.xlsx")
-
-    logger.info("create schema %s" % schema_name)
-    loader.engine.execute(CreateSchema(schema_name))
-
-    logger.info("move tables to standalone schema")
-    ealgis_tables = ["user", "setting", "geometry_touches", "map_definition", "geometry_intersection", "geometry_relation", "spatial_ref_sys"]
-    for table_name in loader.get_table_names():
-        if table_name not in ealgis_tables:
-            try:
-                loader.engine.execute('ALTER TABLE %s SET SCHEMA %s;' % (table_name, schema_name))
-                loader.session.commit()
-                logger.info(table_name)
-            except sqlalchemy.exc.ProgrammingError as e:
-                logger.info("couldn't change schema for table: %s (%s)" % (table_name, e))
-
-    logger.info("dumping database")
-    os.environ['PGPASSWORD'] = loader.dbpassword()
-    shp_cmd = ["pg_dump", str(loader.engineurl()), "--schema=%s" % schema_name, "--format=c", "--file=/app/tmp/%s" % schema_name]
-
-    stdout, stderr, code = cmdrun(shp_cmd)
-    if code != 0:
-        raise Exception("database dump with pg_dump failed: %s." % stderr)
-    else:
-        logger.info("successfully dumped database to /app/tmp/%s" % schema_name)
-        logger.info("load with: pg_restore --username=user --dbname=db /path/to/%s" % schema_name)
-        logger.info("then run VACUUM ANALYZE;")
-
-
-if __name__ == '__main__':
-    loader = EalLoader(
-        "aucensus2011",
-        mandatory_srids=[3112, 3857])
-    tmpdir = "/app/tmp"
-    go(loader, tmpdir)
-    logger.info("OK")
+def load_attrs(factory, census_dir, tmpdir):
+    release = '3'
+    packages = [
+        ("2011 Basic Community Profile", "BCP"),
+        ("2011 Aboriginal and Torres Strait Islander Peoples Profile", "IP"),
+        ("2011 Place of Enumeration Profile", "PEP"),
+        ("2011 Expanded Community Profile", "XCP"),
+        ("2011 Time Series Profile", "TSP"),
+        ("2011 Working Population Profile", "WPP"),
+    ]
+    for basename, abbrev in packages:
+        dirname = basename + ' Release %s' % release
+        schema_name = 'aus_census_2011_' + abbrev.lower()
+        xlsx_name = "Metadata_2011_%s_DataPack.xlsx" % abbrev
+        logger.debug([schema_name, dirname, xlsx_name])
+        loader = factory.make_loader(schema_name)
+        load_package(loader, census_dir, tmpdir, dirname, xlsx_name)
