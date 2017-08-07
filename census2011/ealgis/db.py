@@ -12,6 +12,7 @@ from sqlalchemy.orm import sessionmaker
 from sqlalchemy.ext.declarative import declarative_base
 from ealgis_data_schema.schema_v1 import store
 from collections import Counter
+from .util import cmdrun
 import os
 import sqlalchemy
 from .util import make_logger
@@ -277,3 +278,34 @@ class DataLoader:
                 GeometryRelation.overlaps_with_id == to_source.id).one()
         except sqlalchemy.orm.exc.NoResultFound:
             return None
+    
+    def add_dependency(self, dep_name):
+        dep_metadata, dep_tables = store.load_schema(dep_name)
+        meta = dep_tables['ealgis_metadata']
+        row = self.session.query(meta).one()
+        logger.debug(row)
+
+    def dump(self, target_file):
+        logger.info("dumping database")
+        os.environ['PGPASSWORD'] = self.dbpassword()
+        shp_cmd = [
+            "pg_dump", 
+            str(self.engineurl()),
+            "--schema=%s" % self._schema_name,
+            "--format=c",
+            "--file=%s" % target_file]
+
+        stdout, stderr, code = cmdrun(shp_cmd)
+        if code != 0:
+            raise Exception("database dump with pg_dump failed: %s." % stderr)
+        else:
+            logger.info("successfully dumped database to %s" % target_file)
+            logger.info("load with: pg_restore --username=user --dbname=db /path/to/%s" % self._schema_name)
+            logger.info("then run VACUUM ANALYZE;")
+    
+    def set_version(self, **kwargs):
+        version = self.classes['ealgis_metadata'](**kwargs)
+        self.session.add(version)
+        self.session.commit()
+
+

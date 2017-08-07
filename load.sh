@@ -33,4 +33,4 @@ fi
 
 echo "loading the 2011 Australian Census"
 
-python /app/ealgis-loader/aus_census_shapes.py
+python /app/recipe.py

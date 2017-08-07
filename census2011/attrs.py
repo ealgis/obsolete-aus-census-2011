@@ -7,7 +7,6 @@
 from ealgis.loaders import ZipAccess, ShapeLoader, RewrittenCSV, CSVLoader
 from ealgis.util import alistdir, make_logger
 from ealgis.db import EalLoader
-from ealgis_data_schema.schema_v1 import (EALGISMetadata)
 from ealgis.util import cmdrun
 from sqlalchemy.schema import CreateSchema
 import re
@@ -239,10 +238,11 @@ def go(loader, tmpdir):
             columns = col_meta[datapack_file]
             loader.set_table_metadata(table_name, meta)
             loader.register_columns(table_name, columns)
+    
+    loader.set_metadata(
+        name="ABS Census 2011",
+        description="Shapes")
 
-    first_version = EALGISMetadata(name="ABS Census 2011", version="1.0", description="The full 2011 Census data dump from the ABS.")
-    loader.session.add(first_version)
-    loader.session.commit()
     logger.info("created metadata record - version %s in `ealgis_metadata`" % (first_version.version))
 
     load_shapes()

@@ -1,0 +1,1 @@
+from .shapes import load_shapes  # noqa
