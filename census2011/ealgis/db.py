@@ -24,7 +24,7 @@ logger = make_logger(__name__)
 
 
 class DataLoaderFactory:
-    def __init__(self, db_name):
+    def __init__(self, db_name, clean=True):
         def make_connection_string():
             dbuser = os.environ.get('DB_USERNAME')
             dbpassword = os.environ.get('DB_PASSWORD')
@@ -34,20 +34,22 @@ class DataLoaderFactory:
         # create database and connect
         connection_string = make_connection_string()
         self._engine = create_engine(connection_string)
-        self._create_database(connection_string)
-        self._create_extensions(connection_string)
+        if self._create_database(connection_string, clean):
+            self._create_extensions(connection_string)
 
     def make_loader(self, schema_name, **loader_kwargs):
         self._create_schema(schema_name)
         return DataLoader(self._engine, schema_name, **loader_kwargs)
 
-    def _create_database(self, connection_string):
+    def _create_database(self, connection_string, clean):
         # Initialise the database
-        if database_exists(connection_string):
+        if clean and database_exists(connection_string):
             logger.info("database already exists: deleting.")
             drop_database(connection_string)
-        create_database(connection_string)
-        logger.debug("dataloader database created")
+        if not database_exists(connection_string):
+            create_database(connection_string)
+            logger.debug("database created")
+            return True
 
     def _create_schema(self, schema_name):
         logger.info("create schema: %s" % schema_name)
@@ -285,12 +287,28 @@ class DataLoader:
         row = self.session.query(meta).one()
         logger.debug(row)
 
+    def set_version(self, **kwargs):
+        version = self.classes['ealgis_metadata'](**kwargs)
+        self.session.add(version)
+        self.session.commit()
+
+    def result(self):
+        return DataLoaderResult(self._schema_name, self.engineurl(), self.dbpassword())
+
+
+class DataLoaderResult:
+    def __init__(self, schema_name, engine_url, dbpassword):
+        self._engine_url = engine_url
+        self._dbpassword = dbpassword
+        self._schema_name = schema_name
+
     def dump(self, target_file):
         logger.info("dumping database")
-        os.environ['PGPASSWORD'] = self.dbpassword()
+        # fixme: don't litter the environment
+        os.environ['PGPASSWORD'] = self._dbpasword
         shp_cmd = [
             "pg_dump", 
-            str(self.engineurl()),
+            str(self._engineurl),
             "--schema=%s" % self._schema_name,
             "--format=c",
             "--file=%s" % target_file]
@@ -303,9 +321,3 @@ class DataLoader:
             logger.info("load with: pg_restore --username=user --dbname=db /path/to/%s" % self._schema_name)
             logger.info("then run VACUUM ANALYZE;")
     
-    def set_version(self, **kwargs):
-        version = self.classes['ealgis_metadata'](**kwargs)
-        self.session.add(version)
-        self.session.commit()
-
-

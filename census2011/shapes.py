@@ -38,32 +38,27 @@ SHP_LINKAGE = {
 }
 
 
-def load_shapes(factory):
+def load_shapes(factory, census_dir, tmpdir):
     loader = factory.make_loader(SHAPE_SCHEMA, mandatory_srids=[3112, 3857])
 
-    tmpdir = "/app/tmp"
-
-    census_dir = '/app/data/2011 Datapacks BCP_IP_TSP_PEP_ECP_WPP_ERP_Release 3'
+    def shapefiles():
+        def shape_and_proj(g):
+            for f in g:
+                shape_name = os.path.basename(f)
+                proj = shape_name.split('_')[1]
+                yield f, proj
+        # favour the POW shapes over the others; release 3 eccentricity
+        projs_provided = set()
+        for fname, proj in shape_and_proj(glob.glob(os.path.join(census_dir, "Digital Boundaries/*_POW_shape.zip"))):
+            projs_provided.add(proj)
+            yield fname
+        for fname, proj in shape_and_proj(glob.glob(os.path.join(census_dir, "Digital Boundaries/*_shape.zip"))):
+            if proj not in projs_provided:
+                yield fname
 
     def load_shapes():
-        logger.debug("load shapefiles")
+        logger.info("load census shapefiles")
         new_tables = []
-
-        def shapefiles():
-            def shape_and_proj(g):
-                for f in g:
-                    shape_name = os.path.basename(f)
-                    proj = shape_name.split('_')[1]
-                    yield f, proj
-            # favour the POW shapes over the others; release 3 eccentricity
-            projs_provided = set()
-            for fname, proj in shape_and_proj(glob.glob(os.path.join(census_dir, "Digital Boundaries/*_POW_shape.zip"))):
-                projs_provided.add(proj)
-                yield fname
-            for fname, proj in shape_and_proj(glob.glob(os.path.join(census_dir, "Digital Boundaries/*_shape.zip"))):
-                if proj not in projs_provided:
-                    yield fname
-
         for fname in shapefiles():
             with ZipAccess(None, tmpdir, fname) as z:
                 for shpfile in z.glob("*.shp"):
@@ -73,11 +68,7 @@ def load_shapes(factory):
                     new = list(set(loader.get_table_names()) - before)
                     assert(len(new) == 1)
                     new_tables.append(new[0])
-
-        logger.info("loaded shapefile OK")
-
-        logger.debug(new_tables)
-
+        logger.info("loaded shapefiles OK")
         logger.info("creating shape indexes")
         # create column indexes on shape linkage
         loader.session.commit()
@@ -85,7 +76,7 @@ def load_shapes(factory):
             pfx = "%s_2011" % (census_division)
             matches = [t for t in new_tables if t.startswith(pfx)]
             table = matches[0]
-            logger.debug('creating index for %s' % (table))
+            logger.info('creating index for %s' % (table))
             info = loader.get_table(table)
             col, _, descr = SHP_LINKAGE[census_division]
             loader.set_table_metadata(table, {'description': descr})
@@ -97,7 +88,7 @@ def load_shapes(factory):
             name='ABS Census 2011',
             description="2011 Australian Census: Spatial Data"))
     loader.session.commit()
-    logger.info("created metadata record")
-
     load_shapes()
+    return loader.result()
+
     loader.dump('/app/tmp/%s.dump' % (SHAPE_SCHEMA))

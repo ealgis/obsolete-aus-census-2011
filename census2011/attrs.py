@@ -4,17 +4,18 @@
 # EAlGIS loader: Australian Census 2011; Data Pack 1
 #
 
-from ealgis.loaders import ZipAccess, ShapeLoader, RewrittenCSV, CSVLoader
-from ealgis.util import alistdir, make_logger
-from ealgis.db import EalLoader
-from ealgis.util import cmdrun
-from sqlalchemy.schema import CreateSchema
 import re
 import os
 import glob
 import os.path
 import openpyxl
 import sqlalchemy
+
+from .ealgis.loaders import ZipAccess, ShapeLoader, RewrittenCSV, CSVLoader
+from .ealgis.util import alistdir, make_logger
+from .ealgis.db import EalLoader
+from .ealgis.util import cmdrun
+from sqlalchemy.schema import CreateSchema
 
 
 logger = make_logger(__name__)
@@ -24,29 +25,6 @@ def go(loader, tmpdir):
     census_dir = '/app/data/2011 Datapacks BCP_IP_TSP_PEP_ECP_WPP_ERP_Release 3'
     release = '3'
     schema_name = "aus_census_2011"
-
-    shp_linkage = {
-        'ced': ('ced_code', None, 'Commonwealth Electoral Division'),
-        'gccsa': ('gccsa_code', None, 'Greater Capital City Statistical Areas'),
-        'iare': ('iare_code', None, 'Indigenous Area'),
-        'iloc': ('iloc_code', None, 'Indigenous Location'),
-        'ireg': ('ireg_code', None, 'Indigenous Region'),
-        'lga': ('lga_code', None, 'Local Government Area'),
-        'poa': ('poa_code', None, 'Postal Areas'),
-        'ra': ('ra_code', None, 'Remoteness Area'),
-        'sa1': ('sa1_7digit', sqlalchemy.types.Integer, 'Statistical Area Level 1'),
-        'sa2': ('sa2_main', None, 'Statistical Area Level 2'),
-        'sa3': ('sa3_code', None, 'Statistical Area Level 3'),
-        'sa4': ('sa4_code', None, 'Statistical Area Level 4'),
-        'sed': ('sed_code', None, 'State Electoral Division'),
-        'sla': ('sla_main', None, 'Statistical Local Areas'),
-        'sos': ('sos_code', None, 'Section of State'),
-        'sosr': ('sosr_code', None, 'Section of State Range'),
-        'ssc': ('ssc_code', None, 'State Suburb'),
-        'ste': ('state_code', None, 'State/Territory'),
-        'sua': ('sua_code', None, 'Significant Urban Areas'),
-        'ucl': ('ucl_code', None, 'Urban Centre/Locality')
-    }
 
     census_division_table = {}
     geo_gid_mapping = {}
