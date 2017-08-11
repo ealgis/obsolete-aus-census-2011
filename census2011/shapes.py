@@ -7,7 +7,6 @@
 from .ealgis.loaders import ZipAccess, ShapeLoader
 from .ealgis.util import make_logger
 import os
-import glob
 import os.path
 import sqlalchemy
 

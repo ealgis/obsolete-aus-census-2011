@@ -13,49 +13,48 @@ import sqlalchemy
 
 from .ealgis.loaders import RewrittenCSV, CSVLoader
 from .ealgis.util import alistdir, make_logger
+from .shapes import SHAPE_LINKAGE, SHAPE_SCHEMA
 
 logger = make_logger(__name__)
 
 
-def load_metadata(*fnames):
-    def load_workbook(fname):
-        logger.info("parsing metadata: %s" % (fname))
-        wb = openpyxl.load_workbook(fname, use_iterators=True)
-
-        def sheet_data(sheet):
-            return ([t.internal_value for t in r] for r in sheet.iter_rows())
-
-        def skip(it, n):
-            for i in range(n):
-                next(it)
-
-        sheet_iter = sheet_data(wb.worksheets[0])
-        skip(sheet_iter, 3)
-        for row in sheet_iter:
-            name = row[0]
-            if not name:
-                continue
-            name = name.lower()
-            table_meta[name] = {'type': row[1], 'kind': row[2]}
-
-        sheet_iter = sheet_data(wb.worksheets[1])
-        skip(sheet_iter, 4)
-        for row in sheet_iter:
-            name = row[0]
-            if not name:
-                continue
-            name = name.lower()
-            short_name, long_name, datapack_file, profile_table, column_heading = row[1:6]
-            datapack_file = datapack_file.lower()
-            if datapack_file not in col_meta:
-                col_meta[datapack_file] = []
-            col_meta[datapack_file].append((name, {'type': row[2], 'kind': row[5]}))
-        del wb
-
+def load_metadata(loader, census_dir, xlsx_name, data_tables):
     table_meta = {}
     col_meta = {}
-    for fname in fnames:
-        load_workbook(os.path.join(census_dir, os.path.join('Metadata/', fname)))
+
+    fname = os.path.join(census_dir + '/Metadata/', xlsx_name)
+    logger.info("parsing metadata: %s" % (fname))
+    wb = openpyxl.load_workbook(fname, use_iterators=True)
+
+    def sheet_data(sheet):
+        return ([t.internal_value for t in r] for r in sheet.iter_rows())
+
+    def skip(it, n):
+        for i in range(n):
+            next(it)
+
+    sheet_iter = sheet_data(wb.worksheets[0])
+    skip(sheet_iter, 3)
+    for row in sheet_iter:
+        name = row[0]
+        if not name:
+            continue
+        name = name.lower()
+        table_meta[name] = {'type': row[1], 'kind': row[2]}
+
+    sheet_iter = sheet_data(wb.worksheets[1])
+    skip(sheet_iter, 4)
+    for row in sheet_iter:
+        name = row[0]
+        if not name:
+            continue
+        name = name.lower()
+        short_name, long_name, datapack_file, profile_table, column_heading = row[1:6]
+        datapack_file = datapack_file.lower()
+        if datapack_file not in col_meta:
+            col_meta[datapack_file] = []
+        col_meta[datapack_file].append((name, {'type': row[2], 'kind': row[5]}))
+    del wb
 
     for table_name in data_tables:
         datapack_file = table_name.split('_', 1)[0].lower()
@@ -67,7 +66,7 @@ def load_metadata(*fnames):
         loader.register_columns(table_name, columns)
 
 
-def load_datapacks(loader, census_dir, tmpdir, packname):
+def load_datapacks(loader, census_dir, tmpdir, packname, geo_gid_mapping):
     def get_csv_files():
         files = []
         for geography in alistdir(d):
@@ -85,11 +84,13 @@ def load_datapacks(loader, census_dir, tmpdir, packname):
     csv_files = get_csv_files()
     table_re = re.compile(r'^2011Census_(.*)_sequential.csv$')
     linkage_pending = []
+    data_tables = []
 
     for i, csv_path in enumerate(csv_files):
         logger.info("[%d/%d] %s: %s" % (i + 1, len(csv_files), packname, os.path.basename(csv_path)))
 
         table_name = table_re.match(os.path.split(csv_path)[-1]).groups()[0].lower()
+        data_tables.append(table_name)
         decoded = table_name.split('_')
 
         if len(decoded) == 3:
@@ -126,21 +127,20 @@ def load_datapacks(loader, census_dir, tmpdir, packname):
     # done as another pass to avoid having to re-run the reflection of the entire
     # database for every CSV file loaded (can be thousands)
     for attr_table, table_info, census_division in linkage_pending:
-        geo_table = census_division_table[census_division]
-        geo_column, _, _ = shp_linkage[census_division]
+        geo_column, _, _ = SHAPE_LINKAGE[census_division]
         loader.add_geolinkage(
-            geo_table, "gid",
+            census_division, "gid",
             attr_table, "gid")
 
+    return data_tables
 
-def load_attrs(factory, census_dir, tmpdir):
-    from .shapes import SHAPE_LINKAGE, SHAPE_SCHEMA
+
+def build_geo_gid_mapping(factory):
     shape_access = factory.make_data_access(SHAPE_SCHEMA)
     geo_gid_mapping = {}
     for census_division in SHAPE_LINKAGE:
         geo_column, geo_cast_required, _ = SHAPE_LINKAGE[census_division]
         geo_cls = shape_access.get_table_class(census_division)
-        logger.debug([census_division, geo_column, geo_cast_required, geo_cls])
         geo_attr = getattr(geo_cls, geo_column)
         if geo_cast_required is not None:
             inner_col = sqlalchemy.cast(geo_attr, geo_cast_required)
@@ -149,20 +149,22 @@ def load_attrs(factory, census_dir, tmpdir):
         lookup = {}
         for gid, match in shape_access.session.query(geo_cls.gid, inner_col).all():
             lookup[str(match)] = gid
-        logger.debug(lookup)
         geo_gid_mapping[census_division] = lookup
+    return geo_gid_mapping
 
-    return
+
+def load_attrs(factory, census_dir, tmpdir):
     release = '3'
     packages = [
-        ("2011 Basic Community Profile", "BCP"),
-        ("2011 Aboriginal and Torres Strait Islander Peoples Profile", "IP"),
-        ("2011 Place of Enumeration Profile", "PEP"),
-        ("2011 Expanded Community Profile", "XCP"),
-        ("2011 Time Series Profile", "TSP"),
-        ("2011 Working Population Profile", "WPP"),
+        ("2011 Basic Community Profile", "BCP", "Metadata_2011_BCP_DataPack.xlsx"),
+        ("2011 Aboriginal and Torres Strait Islander Peoples Profile", "IP", "Metadata_2011_IP_DataPack.xlsx"),
+        ("2011 Place of Enumeration Profile", "PEP", "Metadata_2011_PEP_DataPack.xlsx"),
+        ("2011 Expanded Community Profile", "XCP", "Metadata_2011_XCP_DataPack.xlsx"),
+        ("2011 Time Series Profile", "TSP", "Metadata_2011_TSP_DataPack.xlsx"),
+        ("2011 Working Population Profile", "WPP", "Metadata_2011_WPP_DataPack.xlsx"),
     ]
-    for basename, abbrev in packages:
+    geo_gid_mapping = build_geo_gid_mapping(factory)
+    for basename, abbrev, metadata_filename in packages:
         dirname = basename + ' Release %s' % release
         schema_name = 'aus_census_2011_' + abbrev.lower()
         xlsx_name = "Metadata_2011_%s_DataPack.xlsx" % abbrev
@@ -171,6 +173,5 @@ def load_attrs(factory, census_dir, tmpdir):
         loader.set_metadata(
             name="ABS Census 2011",
             description="Shapes")
-        load_datapacks(loader, census_dir, tmpdir, dirname)
-        # FIXME: remove this once we have a full run through going!
-        break
+        data_tables = load_datapacks(loader, census_dir, tmpdir, dirname, geo_gid_mapping)
+        load_metadata(loader, census_dir, metadata_filename, data_tables)
