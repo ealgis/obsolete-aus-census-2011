@@ -66,23 +66,14 @@ class DataLoaderFactory:
                     print("couldn't load: %s (%s)" % (extension, e))
 
 
-class DataLoader:
-    def __init__(self, engine, schema_name, mandatory_srids=None):
+class DataAccess:
+    def __init__(self, engine, schema_name):
         self.engine = engine
         Session = sessionmaker()
         Session.configure(bind=self.engine)
         self.session = Session()
-
-        # make extensions, create target schema
         self._schema_name = schema_name
-
         self._table_names_used = Counter()
-        self._mandatory_srids = mandatory_srids
-
-        metadata, tables = store.load_schema(schema_name)
-        metadata.create_all(self.engine)
-        self.tables = dict((t.name, t) for t in tables)
-        self.classes = dict((t.name, self.get_table_class(t.name)) for t in tables)
 
     def engineurl(self):
         return self.engine.engine.url
@@ -127,7 +118,7 @@ class DataLoader:
         nm = "Table_%s_%d" % (table_name, self._table_names_used[table_name])
         return type(nm, (Base,), {'__table__': self.get_table(table_name)})
 
-    def geom_column(self, table_name):
+    def find_geom_column(self, table_name):
         info = self.get_table(table_name)
         geom_columns = []
 
@@ -139,6 +130,38 @@ class DataLoader:
         if len(geom_columns) > 1:
             raise Exception("more than one geometry column?")
         return geom_columns[0]
+
+    def get_table_info(self, table_name):
+        TableInfo = self.classes['table_info']
+        return self.session.query(TableInfo).filter(TableInfo.name == table_name).one()
+
+    def get_geometry_source(self, table_name):
+        TableInfo = self.classes['table_info']
+        GeometrySource = self.classes['geometry_source']
+        return self.session.query(GeometrySource).join(GeometrySource.table_info).filter(TableInfo.name == table_name).one()
+
+    def get_geometry_source_by_id(self, id):
+        GeometrySource = self.classes['geometry_source']
+        return self.session.query(GeometrySource).filter(GeometrySource.id == id).one()
+
+    def get_geometry_relation(self, from_source, to_source):
+        GeometryRelation = self.classes['geometry_relation']
+        try:
+            return self.session.query(GeometryRelation).filter(
+                GeometryRelation.geo_source_id == from_source.id,
+                GeometryRelation.overlaps_with_id == to_source.id).one()
+        except sqlalchemy.orm.exc.NoResultFound:
+            return None
+
+
+class DataLoader(DataAccess):
+    def __init__(self, engine, schema_name, mandatory_srids=None):
+        super(DataLoader, self).__init__(engine, schema_name)
+        self._mandatory_srids = mandatory_srids
+        metadata, tables = store.load_schema(schema_name)
+        metadata.create_all(self.engine)
+        self.tables = dict((t.name, t) for t in tables)
+        self.classes = dict((t.name, self.get_table_class(t.name)) for t in tables)
 
     def set_table_metadata(self, table_name, meta_dict):
         ti = self.get_table_info(table_name)
@@ -217,7 +240,7 @@ class DataLoader:
             self.tables['table_info'].insert().values(
                 name=table_name)).inserted_primary_key
         if geom:
-            column = self.geom_column(table_name)
+            column = self.find_geom_column(table_name)
             if column is None:
                 raise Exception("Cannot automatically determine geometry column for `%s'" % table_name)
             # figure out what type of geometry this is
@@ -247,19 +270,6 @@ class DataLoader:
                 self.reproject(source_id, column.name, gen_srid)
         self.session.commit()
 
-    def get_table_info(self, table_name):
-        TableInfo = self.classes['table_info']
-        return self.session.query(TableInfo).filter(TableInfo.name == table_name).one()
-
-    def get_geometry_source(self, table_name):
-        TableInfo = self.classes['table_info']
-        GeometrySource = self.classes['geometry_source']
-        return self.session.query(GeometrySource).join(GeometrySource.table_info).filter(TableInfo.name == table_name).one()
-
-    def get_geometry_source_by_id(self, id):
-        GeometrySource = self.classes['geometry_source']
-        return self.session.query(GeometrySource).filter(GeometrySource.id == id).one()
-
     def add_geolinkage(self, geo_table_name, geo_column, attr_table_name, attr_column):
         GeometryLinkage = self.classes['geometry_linkage']
         geo_source = self.get_geometry_source(geo_table_name)
@@ -271,15 +281,6 @@ class DataLoader:
             attr_column=attr_column)
         self.session.add(linkage)
         self.session.commit()
-
-    def get_geometry_relation(self, from_source, to_source):
-        GeometryRelation = self.classes['geometry_relation']
-        try:
-            return self.session.query(GeometryRelation).filter(
-                GeometryRelation.geo_source_id == from_source.id,
-                GeometryRelation.overlaps_with_id == to_source.id).one()
-        except sqlalchemy.orm.exc.NoResultFound:
-            return None
 
     def add_dependency(self, dep_name):
         dep_metadata, dep_tables = store.load_schema(dep_name)
@@ -307,7 +308,7 @@ class DataLoaderResult:
         # fixme: don't litter the environment
         os.environ['PGPASSWORD'] = self._dbpasword
         shp_cmd = [
-            "pg_dump", 
+            "pg_dump",
             str(self._engineurl),
             "--schema=%s" % self._schema_name,
             "--format=c",
@@ -320,4 +321,3 @@ class DataLoaderResult:
             logger.info("successfully dumped database to %s" % target_file)
             logger.info("load with: pg_restore --username=user --dbname=db /path/to/%s" % self._schema_name)
             logger.info("then run VACUUM ANALYZE;")
-    

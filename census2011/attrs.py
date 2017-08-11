@@ -85,15 +85,12 @@ def load_datapacks(loader, census_dir, tmpdir, packname):
     table_re = re.compile(r'^2011Census_(.*)_sequential.csv$')
     linkage_pending = []
 
-    data_tables = []
     for i, csv_path in enumerate(csv_files):
-        if i > 3:
-            break
         logger.info("[%d/%d] %s: %s" % (i + 1, len(csv_files), packname, os.path.basename(csv_path)))
+
         table_name = table_re.match(os.path.split(csv_path)[-1]).groups()[0].lower()
-        data_tables.append(table_name)
         decoded = table_name.split('_')
-        census_table, census_country = table_name[0], table_name[1]
+
         if len(decoded) == 3:
             census_division = decoded[2]
         else:
@@ -114,10 +111,13 @@ def load_datapacks(loader, census_dir, tmpdir, packname):
                 return _matcher
             gid_match = make_match_fn()
 
+        logger.debug(['gid_match', gid_match])
+
         # normalise the CSV file by reading it in and writing it out again,
         # Postgres is quite pedantic. we also want to add an additional column to it
         with RewrittenCSV(tmpdir, csv_path, gid_match) as norm:
-            instance = CSVLoader(table_name, norm.get(), pkey_column=0)
+            logger.debug(norm.get())
+            instance = CSVLoader(loader.dbschema(), table_name, norm.get(), pkey_column=0)
             table_info = instance.load(loader)
             if table_info is not None and census_division is not None:
                 linkage_pending.append((table_name, table_info, census_division))
@@ -152,3 +152,4 @@ def load_attrs(factory, census_dir, tmpdir):
             name="ABS Census 2011",
             description="Shapes")
         load_datapacks(loader, census_dir, tmpdir, dirname)
+        break

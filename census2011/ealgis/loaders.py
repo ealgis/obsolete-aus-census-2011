@@ -89,7 +89,8 @@ class RewrittenCSV(object):
         return self
 
     def __exit__(self, *args):
-        os.unlink(self._path)
+        # os.unlink(self._path)
+        pass
 
 
 class GeoDataLoader(object):
@@ -199,7 +200,8 @@ class KMLLoader(GeoDataLoader):
 
 
 class CSVLoader(GeoDataLoader):
-    def __init__(self, table_name, csvpath, pkey_column=None):
+    def __init__(self, schema_name, table_name, csvpath, pkey_column=None):
+        self.schema_name = schema_name
         self.table_name = table_name
         self.csvpath = csvpath
         self.pkey_column = pkey_column
@@ -240,14 +242,14 @@ class CSVLoader(GeoDataLoader):
             header = next(r)
             cols = columns(header)
         metadata = sqlalchemy.MetaData()
-        new_tbl = sqlalchemy.Table(self.table_name, metadata, *cols)
+        new_tbl = sqlalchemy.Table(self.table_name, metadata, *cols, schema=self.schema_name)
         metadata.create_all(loader.engine)
         loader.session.commit()
         del new_tbl
 
         # invoke the Postgres CSV loader
         conn = loader.session.connection()
-        conn.execute('COPY %s FROM %%s CSV HEADER' % (self.table_name), (self.csvpath, ))
+        conn.execute('COPY %s.%s FROM %%s CSV HEADER' % (self.schema_name, self.table_name), (self.csvpath, ))
         ti = loader.register_table(self.table_name)
         loader.session.commit()
         return ti

@@ -89,5 +89,4 @@ def load_shapes(factory, census_dir, tmpdir):
     loader.session.commit()
     load_shapes()
     return loader.result()
-
     loader.dump('/app/tmp/%s.dump' % (SHAPE_SCHEMA))
