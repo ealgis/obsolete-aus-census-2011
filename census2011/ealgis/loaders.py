@@ -89,8 +89,7 @@ class RewrittenCSV(object):
         return self
 
     def __exit__(self, *args):
-        # os.unlink(self._path)
-        pass
+        os.unlink(self._path)
 
 
 class GeoDataLoader(object):

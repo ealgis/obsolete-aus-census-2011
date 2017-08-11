@@ -66,7 +66,7 @@ def load_metadata(loader, census_dir, xlsx_name, data_tables):
         loader.register_columns(table_name, columns)
 
 
-def load_datapacks(loader, census_dir, tmpdir, packname, geo_gid_mapping):
+def load_datapacks(loader, census_dir, tmpdir, packname, abbrev, geo_gid_mapping):
     def get_csv_files():
         files = []
         for geography in alistdir(d):
@@ -87,7 +87,7 @@ def load_datapacks(loader, census_dir, tmpdir, packname, geo_gid_mapping):
     data_tables = []
 
     for i, csv_path in enumerate(csv_files):
-        logger.info("[%d/%d] %s: %s" % (i + 1, len(csv_files), packname, os.path.basename(csv_path)))
+        logger.info("%s: [%d/%d] %s" % (abbrev, i + 1, len(csv_files), os.path.basename(csv_path)))
 
         table_name = table_re.match(os.path.split(csv_path)[-1]).groups()[0].lower()
         data_tables.append(table_name)
@@ -113,12 +113,9 @@ def load_datapacks(loader, census_dir, tmpdir, packname, geo_gid_mapping):
                 return _matcher
             gid_match = make_match_fn()
 
-        logger.debug(['gid_match', gid_match])
-
         # normalise the CSV file by reading it in and writing it out again,
         # Postgres is quite pedantic. we also want to add an additional column to it
         with RewrittenCSV(tmpdir, csv_path, gid_match) as norm:
-            logger.debug(norm.get())
             instance = CSVLoader(loader.dbschema(), table_name, norm.get(), pkey_column=0)
             table_info = instance.load(loader)
             if table_info is not None and census_division is not None:
@@ -156,8 +153,8 @@ def build_geo_gid_mapping(factory):
 def load_attrs(factory, census_dir, tmpdir):
     release = '3'
     packages = [
-        ("2011 Basic Community Profile", "BCP", "Metadata_2011_BCP_DataPack.xlsx"),
         ("2011 Aboriginal and Torres Strait Islander Peoples Profile", "IP", "Metadata_2011_IP_DataPack.xlsx"),
+        ("2011 Basic Community Profile", "BCP", "Metadata_2011_BCP_DataPack.xlsx"),
         ("2011 Place of Enumeration Profile", "PEP", "Metadata_2011_PEP_DataPack.xlsx"),
         ("2011 Expanded Community Profile", "XCP", "Metadata_2011_XCP_DataPack.xlsx"),
         ("2011 Time Series Profile", "TSP", "Metadata_2011_TSP_DataPack.xlsx"),
@@ -167,11 +164,10 @@ def load_attrs(factory, census_dir, tmpdir):
     for basename, abbrev, metadata_filename in packages:
         dirname = basename + ' Release %s' % release
         schema_name = 'aus_census_2011_' + abbrev.lower()
-        xlsx_name = "Metadata_2011_%s_DataPack.xlsx" % abbrev
-        logger.debug([schema_name, dirname, xlsx_name])
         loader = factory.make_loader(schema_name)
+        loader.add_dependency(SHAPE_SCHEMA)
         loader.set_metadata(
             name="ABS Census 2011",
             description="Shapes")
-        data_tables = load_datapacks(loader, census_dir, tmpdir, dirname, geo_gid_mapping)
+        data_tables = load_datapacks(loader, census_dir, tmpdir, dirname, abbrev, geo_gid_mapping)
         load_metadata(loader, census_dir, metadata_filename, data_tables)

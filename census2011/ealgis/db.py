@@ -183,7 +183,7 @@ class DataLoader(DataAccess):
                 self.tables['column_info'].insert().values(
                     name=column_name,
                     table_info_id=ti.id,
-                    metadata_json=meta_dict))
+                    metadata=meta_dict))
         self.session.commit()
 
     def register_column(self, table_name, column_name, meta_dict):
@@ -290,11 +290,15 @@ class DataLoader(DataAccess):
         self.session.add(linkage)
         self.session.commit()
 
-    def add_dependency(self, dep_name):
-        dep_metadata, dep_tables = store.load_schema(dep_name)
-        meta = dep_tables['ealgis_metadata']
-        row = self.session.query(meta).one()
-        logger.debug(row)
+    def add_dependency(self, required_schema):
+        dep_access = DataAccess(self.engine, required_schema)
+        metadata_cls = dep_access.get_table_class('ealgis_metadata')
+        metadata = self.session.query(metadata_cls).one()
+        Dependencies = self.classes['dependencies']
+        self.session.add(Dependencies(
+            name=required_schema,
+            uuid=metadata.uuid))
+        self.session.commit()
 
     def set_metadata(self, **kwargs):
         self.session.execute(
@@ -311,7 +315,8 @@ class DataLoaderResult:
         self._dbpassword = dbpassword
         self._schema_name = schema_name
 
-    def dump(self, target_file):
+    def dump(self, target_dir):
+        target_file = os.path.join(target_dir, '%s.dump' % self._schema_name)
         logger.info("dumping database")
         # fixme: don't litter the environment
         os.environ['PGPASSWORD'] = self._dbpasword
