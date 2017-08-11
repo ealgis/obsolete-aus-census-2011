@@ -12,9 +12,8 @@ def main():
     census_dir = '/app/data/2011 Datapacks BCP_IP_TSP_PEP_ECP_WPP_ERP_Release 3'
     factory = DataLoaderFactory("scratch_census_2011", clean=False)
     shape_result = load_shapes(factory, census_dir, tmpdir)
-    shape_result.dump(tmpdir)
     attrs_results = load_attrs(factory, census_dir, tmpdir)
-    for result in [shape_result] + attrs_result:
+    for result in [shape_result] + attrs_results:
         result.dump(tmpdir)
 
 

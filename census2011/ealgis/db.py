@@ -317,12 +317,12 @@ class DataLoaderResult:
 
     def dump(self, target_dir):
         target_file = os.path.join(target_dir, '%s.dump' % self._schema_name)
-        logger.info("dumping database")
-        # fixme: don't litter the environment
-        os.environ['PGPASSWORD'] = self._dbpasword
+        logger.info("dumping database: %s" % target_file)
+        # FIXME: don't litter the environment
+        os.environ['PGPASSWORD'] = self._dbpassword
         shp_cmd = [
             "pg_dump",
-            str(self._engineurl),
+            str(self._engine_url),
             "--schema=%s" % self._schema_name,
             "--format=c",
             "--file=%s" % target_file]
