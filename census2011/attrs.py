@@ -9,6 +9,7 @@ import os
 import glob
 import os.path
 import openpyxl
+import sqlalchemy
 
 from .ealgis.loaders import RewrittenCSV, CSVLoader
 from .ealgis.util import alistdir, make_logger
@@ -133,6 +134,25 @@ def load_datapacks(loader, census_dir, tmpdir, packname):
 
 
 def load_attrs(factory, census_dir, tmpdir):
+    from .shapes import SHAPE_LINKAGE, SHAPE_SCHEMA
+    shape_access = factory.make_data_access(SHAPE_SCHEMA)
+    geo_gid_mapping = {}
+    for census_division in SHAPE_LINKAGE:
+        geo_column, geo_cast_required, _ = SHAPE_LINKAGE[census_division]
+        geo_cls = shape_access.get_table_class(census_division)
+        logger.debug([census_division, geo_column, geo_cast_required, geo_cls])
+        geo_attr = getattr(geo_cls, geo_column)
+        if geo_cast_required is not None:
+            inner_col = sqlalchemy.cast(geo_attr, geo_cast_required)
+        else:
+            inner_col = geo_attr
+        lookup = {}
+        for gid, match in shape_access.session.query(geo_cls.gid, inner_col).all():
+            lookup[str(match)] = gid
+        logger.debug(lookup)
+        geo_gid_mapping[census_division] = lookup
+
+    return
     release = '3'
     packages = [
         ("2011 Basic Community Profile", "BCP"),
@@ -152,4 +172,5 @@ def load_attrs(factory, census_dir, tmpdir):
             name="ABS Census 2011",
             description="Shapes")
         load_datapacks(loader, census_dir, tmpdir, dirname)
+        # FIXME: remove this once we have a full run through going!
         break

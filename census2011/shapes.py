@@ -14,7 +14,29 @@ import sqlalchemy
 
 logger = make_logger(__name__)
 SHAPE_SCHEMA = 'aus_census_2011_shapes'
-SHP_LINKAGE = {
+SHAPE_ZIPS = [
+    ('ced', '2011_CED_shape.zip'),
+    ('gccsa', '2011_GCCSA_POW_shape.zip'),
+    ('iare', '2011_IARE_shape.zip'),
+    ('iloc', '2011_ILOC_shape.zip'),
+    ('ireg', '2011_IREG_shape.zip'),
+    ('lga', '2011_LGA_POW_shape.zip'),
+    ('poa', '2011_POA_shape.zip'),
+    ('ra', '2011_RA_shape.zip'),
+    ('sa1', '2011_SA1_shape.zip'),
+    ('sa2', '2011_SA2_POW_shape.zip'),
+    ('sa3', '2011_SA3_POW_shape.zip'),
+    ('sa4', '2011_SA4_POW_shape.zip'),
+    ('sed', '2011_SED_shape.zip'),
+    ('sla', '2011_SLA_POW_shape.zip'),
+    ('sosr', '2011_SOSR_shape.zip'),
+    ('sos', '2011_SOS_shape.zip'),
+    ('ssc', '2011_SSC_shape.zip'),
+    ('ste', '2011_STE_POW_shape.zip'),
+    ('sua', '2011_SUA_shape.zip'),
+    ('ucl', '2011_UCL_shape.zip'),
+]
+SHAPE_LINKAGE = {
     'ced': ('ced_code', None, 'Commonwealth Electoral Division'),
     'gccsa': ('gccsa_code', None, 'Greater Capital City Statistical Areas'),
     'iare': ('iare_code', None, 'Indigenous Area'),
@@ -41,46 +63,23 @@ SHP_LINKAGE = {
 def load_shapes(factory, census_dir, tmpdir):
     loader = factory.make_loader(SHAPE_SCHEMA, mandatory_srids=[3112, 3857])
 
-    def shapefiles():
-        def shape_and_proj(g):
-            for f in g:
-                shape_name = os.path.basename(f)
-                proj = shape_name.split('_')[1]
-                yield f, proj
-        # favour the POW shapes over the others; release 3 eccentricity
-        projs_provided = set()
-        for fname, proj in shape_and_proj(glob.glob(os.path.join(census_dir, "Digital Boundaries/*_POW_shape.zip"))):
-            projs_provided.add(proj)
-            yield fname
-        for fname, proj in shape_and_proj(glob.glob(os.path.join(census_dir, "Digital Boundaries/*_shape.zip"))):
-            if proj not in projs_provided:
-                yield fname
-
     def load_shapes():
         logger.info("load census shapefiles")
-        new_tables = []
-        for fname in shapefiles():
-            with ZipAccess(None, tmpdir, fname) as z:
+        for table_name, fname in SHAPE_ZIPS:
+            with ZipAccess(None, tmpdir, os.path.join(census_dir + '/Digital Boundaries/', fname)) as z:
                 for shpfile in z.glob("*.shp"):
-                    before = set(loader.get_table_names())
-                    instance = ShapeLoader(loader.dbschema(), shpfile, 4283)
+                    instance = ShapeLoader(loader.dbschema(), shpfile, 4283, table_name=table_name)
                     instance.load(loader)
-                    new = list(set(loader.get_table_names()) - before)
-                    assert(len(new) == 1)
-                    new_tables.append(new[0])
         logger.info("loaded shapefiles OK")
         logger.info("creating shape indexes")
         # create column indexes on shape linkage
         loader.session.commit()
-        for census_division in SHP_LINKAGE:
-            pfx = "%s_2011" % (census_division)
-            matches = [t for t in new_tables if t.startswith(pfx)]
-            table = matches[0]
-            logger.info('creating index for %s' % (table))
-            info = loader.get_table(table)
-            col, _, descr = SHP_LINKAGE[census_division]
-            loader.set_table_metadata(table, {'description': descr})
-            idx = sqlalchemy.Index("%s_%s_idx" % (table, col), info.columns[col], unique=True)
+        for census_division in SHAPE_LINKAGE:
+            logger.info('creating index for %s' % (census_division))
+            table = loader.get_table(census_division)
+            col, _, descr = SHAPE_LINKAGE[census_division]
+            loader.set_table_metadata(census_division, {'description': descr})
+            idx = sqlalchemy.Index("%s_%s_idx" % (census_division, col), table.columns[col], unique=True)
             idx.create(loader.engine)
 
     loader.set_metadata(

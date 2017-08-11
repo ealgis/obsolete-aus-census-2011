@@ -25,17 +25,14 @@ logger = make_logger(__name__)
 
 class DataLoaderFactory:
     def __init__(self, db_name, clean=True):
-        def make_connection_string():
-            dbuser = os.environ.get('DB_USERNAME')
-            dbpassword = os.environ.get('DB_PASSWORD')
-            dbhost = os.environ.get('DB_HOST')
-            return 'postgres://%s:%s@%s:5432/%s' % (dbuser, dbpassword, dbhost, db_name)
-
         # create database and connect
-        connection_string = make_connection_string()
+        connection_string = DataAccess.make_connection_string(db_name)
         self._engine = create_engine(connection_string)
         if self._create_database(connection_string, clean):
             self._create_extensions(connection_string)
+
+    def make_data_access(self, schema_name):
+        return DataAccess(self._engine, schema_name)
 
     def make_loader(self, schema_name, **loader_kwargs):
         self._create_schema(schema_name)
@@ -74,6 +71,17 @@ class DataAccess:
         self.session = Session()
         self._schema_name = schema_name
         self._table_names_used = Counter()
+
+    @classmethod
+    def make_engine(cls, db_name):
+        return create_engine(cls.make_connection_string(db_name))
+
+    @classmethod
+    def make_connection_string(cls, db_name):
+        dbuser = os.environ.get('DB_USERNAME')
+        dbpassword = os.environ.get('DB_PASSWORD')
+        dbhost = os.environ.get('DB_HOST')
+        return 'postgres://%s:%s@%s:5432/%s' % (dbuser, dbpassword, dbhost, db_name)
 
     def engineurl(self):
         return self.engine.engine.url
