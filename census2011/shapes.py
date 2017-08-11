@@ -4,8 +4,8 @@
 # EAlGIS loader: Australian Census 2011; Data Pack 1
 #
 
-from .ealgis.loaders import ZipAccess, ShapeLoader
-from .ealgis.util import make_logger
+from ealgis_common.loaders import ZipAccess, ShapeLoader
+from ealgis_common.util import make_logger
 import os
 import os.path
 import sqlalchemy

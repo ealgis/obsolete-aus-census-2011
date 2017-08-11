@@ -11,8 +11,8 @@ import os.path
 import openpyxl
 import sqlalchemy
 
-from .ealgis.loaders import RewrittenCSV, CSVLoader
-from .ealgis.util import alistdir, make_logger
+from ealgis_common.loaders import RewrittenCSV, CSVLoader
+from ealgis_common.util import alistdir, make_logger
 from .shapes import SHAPE_LINKAGE, SHAPE_SCHEMA
 
 logger = make_logger(__name__)

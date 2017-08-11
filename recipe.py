@@ -1,7 +1,7 @@
 from census2011 import load_shapes
 from census2011 import load_attrs
-from census2011.ealgis.db import DataLoaderFactory
-from census2011.ealgis.util import make_logger
+from ealgis_common.db import DataLoaderFactory
+from ealgis_common.util import make_logger
 
 
 logger = make_logger(__name__)
