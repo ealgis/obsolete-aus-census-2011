@@ -160,6 +160,8 @@ def load_attrs(factory, census_dir, tmpdir):
         ("2011 Time Series Profile", "TSP", "Metadata_2011_TSP_DataPack.xlsx"),
         ("2011 Working Population Profile", "WPP", "Metadata_2011_WPP_DataPack.xlsx"),
     ]
+
+    attr_results = []
     geo_gid_mapping = build_geo_gid_mapping(factory)
     for basename, abbrev, metadata_filename in packages:
         dirname = basename + ' Release %s' % release
@@ -171,3 +173,5 @@ def load_attrs(factory, census_dir, tmpdir):
             description="Shapes")
         data_tables = load_datapacks(loader, census_dir, tmpdir, dirname, abbrev, geo_gid_mapping)
         load_metadata(loader, census_dir, metadata_filename, data_tables)
+        attr_results.append(loader.result())
+    return attr_results
