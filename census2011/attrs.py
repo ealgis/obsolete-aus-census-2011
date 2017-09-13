@@ -247,6 +247,7 @@ def load_metadata(loader, census_dir, xlsx_name, data_tables, columns_by_series)
         series_id = int(m.groups()[1][1:]) if m.groups()[1] is not None else None  # Just a number that increments from 1
         meta = table_meta[table_number]
         meta["series"] = None
+        meta["family"] = table_number
         # Merge JSON formatted metadata
         if table_number.upper() in metadata_mapping:
             meta = {**meta, **metadata_mapping[table_number.upper()]}
@@ -267,24 +268,21 @@ def load_metadata(loader, census_dir, xlsx_name, data_tables, columns_by_series)
         loader.register_columns(table_name, columns)
 
 
-# @TODO Validate that our merging and splitting is actually slicing the file up properly
-
 def load_datapacks(loader, census_dir, tmpdir, packname, abbrev, geo_gid_mapping, columns_by_series):
     def get_csv_files():
         files = []
         for geography in alistdir(d):
-            # @TODO Validate and remove
-            if "/SA3" in geography or "/SA1" in geography or "/LGA" in geography:
-                logger.info("%s: Geograpy - %s" % (abbrev, geography))
+            # if "/SA3" in geography or "/SA1" in geography or "/LGA" in geography:
+            logger.info("%s: Geograpy - %s" % (abbrev, geography))
 
-                g = os.path.join(geography, "*.csv")
+            g = os.path.join(geography, "*.csv")
+            csv_files = glob.glob(g)
+            if len(csv_files) == 0:
+                g = os.path.join(geography, "AUST", "*.csv")
                 csv_files = glob.glob(g)
-                if len(csv_files) == 0:
-                    g = os.path.join(geography, "AUST", "*.csv")
-                    csv_files = glob.glob(g)
-                if len(csv_files) == 0:
-                    raise Exception("can't find CSV files for `%s'" % geography)
-                files += csv_files
+            if len(csv_files) == 0:
+                raise Exception("can't find CSV files for `%s'" % geography)
+            files += csv_files
         return files
 
     def get_csv_files_by_geography_and_table():
