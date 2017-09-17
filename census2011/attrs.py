@@ -99,7 +99,7 @@ def parseColumnMetadata(table_number, column_name, metadata):
             metadata["kind"] = formatHumanReadableColumnLabel(metadata["kind"])
 
     if "seriesName" not in metadata:
-        raise Exception("[{table_number}] Failed to parse column {column_name}: Fix '{kind}' // With '{type}'".format(table_number=table_number, column_name=column_name, kind=metadata_original["kind"], type=metadata_original["type"].strip().replace("_", " ")))
+        raise Exception("[{table_number}] Failed to parse column {column_name}: Fix '{kind}' // With '{type}'. Col label: '{columnLabel}'.".format(table_number=table_number, column_name=column_name, kind=metadata_original["kind"], type=metadata_original["type"].strip().replace("_", " "), columnLabel=columnLabel))
 
     # Discard - seriesName is now only used to validate parsing
     del metadata["seriesName"]
@@ -321,7 +321,7 @@ def load_datapacks(loader, census_dir, tmpdir, packname, abbrev, geo_gid_mapping
                 # https://stackoverflow.com/a/39923823/7368493
                 fieldnames = ["region_id"] + columns_by_series[table_name][series_name]["columns"]
                 fieldnames_set = set(fieldnames)
-                logger.info("Fieldnames ({}): {}".format(len(fieldnames), fieldnames))
+                # logger.info("Fieldnames ({}): {}".format(len(fieldnames), fieldnames))
 
                 with open(series_csv_path, "w") as f:
                     writer = csv.DictWriter(f, fieldnames)
