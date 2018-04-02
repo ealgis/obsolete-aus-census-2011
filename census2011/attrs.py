@@ -315,7 +315,7 @@ def load_datapacks(loader, census_dir, tmpdir, packname, abbrev, geo_gid_mapping
                 reader = csv.DictReader(merged_csv_file)
 
                 series_csv_path = csv_path.replace(table_name.upper(), "{}S{}".format(table_name.upper(), key + 1))
-                if series_csv_path.endswith(".tmp.csv") == False:
+                if not series_csv_path.endswith(".tmp.csv"):
                     series_csv_path = series_csv_path.replace(".csv", ".tmp.csv")
 
                 # https://stackoverflow.com/a/39923823/7368493
@@ -363,7 +363,7 @@ def load_datapacks(loader, census_dir, tmpdir, packname, abbrev, geo_gid_mapping
             base_csv_path = csv_paths[0].replace("_{}_".format(profiletable_name), "_{}_".format(table_name.upper())).replace(".csv", ".tmp.csv")
             # logger.info("Merged Path: {}".format(os.path.basename(merged_csv_path)))
             series_csv_path = base_csv_path.replace(table_name.upper(), "{}S{}".format(table_name.upper(), key + 1))
-            if series_csv_path.endswith(".tmp.csv") == False:
+            if not series_csv_path.endswith(".tmp.csv"):
                 series_csv_path = series_csv_path.replace(".csv", ".tmp.csv")
             logger.info("Series CSV Path: {}".format(os.path.basename(series_csv_path)))
 
@@ -508,11 +508,13 @@ def load_datapacks(loader, census_dir, tmpdir, packname, abbrev, geo_gid_mapping
     # @FIXME Doesn't work in the new multi-schema world. DataLoader.get_geometry_source() fails.
     # done as another pass to avoid having to re-run the reflection of the entire
     # database for every CSV file loaded (can be thousands)
-    for attr_table, table_info, census_division in linkage_pending:
-        geo_column, _, _ = SHAPE_LINKAGE[census_division]
-        loader.add_geolinkage(
-            census_division, "gid",
-            attr_table, "gid")
+    with loader.access_schema(SHAPE_SCHEMA) as geo_access:
+        for attr_table, table_info, census_division in linkage_pending:
+            geo_column, _, _ = SHAPE_LINKAGE[census_division]
+            loader.add_geolinkage(
+                geo_access,
+                census_division, "gid",
+                attr_table, "gid")
 
     return data_tables
 
