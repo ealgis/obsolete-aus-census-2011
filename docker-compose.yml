@@ -1,10 +1,9 @@
 version: '2'
 services:
   db:
-    image: mdillon/postgis:10
+    image: shongololo/postgis:2.4
     volumes:
       - ./:/app
-      - ./postgresql.conf.sh:/docker-entrypoint-initdb.d/postgresql.conf.sh
     ports:
       - "5432:5432"
 
