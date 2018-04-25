@@ -2,7 +2,7 @@
 EAlGIS - Australian Census 2011
 ===============================
 
-(To find out what EAlGIS is, see https://github.com/grahame/ealgis/)
+(To find out what EAlGIS is, see https://github.com/ealgis/ealgis/)
 
 Importing the census
 --------------------
