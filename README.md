@@ -10,8 +10,6 @@ Importing the census
 Run:
 
     docker-compose run dataloader /bin/bash
-    cd /app/data/ealgis-aus-census-2011-master/
-    chmod +x load.sh
     ./load.sh
 
 If you have not already downloaded the census, it will be downloaded and 
