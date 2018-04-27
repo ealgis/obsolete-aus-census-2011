@@ -520,7 +520,7 @@ def load_datapacks(loader, census_dir, tmpdir, packname, abbrev, geo_gid_mapping
 
 
 def build_geo_gid_mapping(factory):
-    shape_access = factory.make_data_access(SHAPE_SCHEMA)
+    shape_access = factory.make_schema_access(SHAPE_SCHEMA)
     geo_gid_mapping = {}
     for census_division in SHAPE_LINKAGE:
         geo_column, geo_cast_required, _ = SHAPE_LINKAGE[census_division]
