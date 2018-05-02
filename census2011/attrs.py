@@ -202,6 +202,18 @@ def load_metadata(loader, census_dir, xlsx_name, data_tables, columns_by_series)
                 files = {**files, **json.load(f)["tables"]}
         return files
 
+    def get_topic_to_table_mapping():
+        mapping = {}
+        for json_file in glob.glob(os.path.join("./", "census2016", "*_topic_mapping.json")):
+            with open(json_file, "r") as f:
+                for topic_name, tables in json.load(f).items():
+                    for table_number in tables:
+                        table_number = table_number.upper()
+                        if table_number not in mapping:
+                            mapping[table_number] = []
+                        mapping[table_number].append(topic_name)
+        return mapping
+
     sheet_iter = sheet_data(wb.worksheets[0])
     skip(sheet_iter, 2)
     for row in sheet_iter:
@@ -239,6 +251,7 @@ def load_metadata(loader, census_dir, xlsx_name, data_tables, columns_by_series)
     del wb
 
     metadata_mapping = get_metadata_mapping()
+    topic_to_table_mapping = get_topic_to_table_mapping()
 
     for table_name in data_tables:
         datapack_file = table_name.split('_', 1)[0].lower()
@@ -248,9 +261,16 @@ def load_metadata(loader, census_dir, xlsx_name, data_tables, columns_by_series)
         meta = table_meta[table_number]
         meta["series"] = None
         meta["family"] = table_number
+
         # Merge JSON formatted metadata
         if table_number.upper() in metadata_mapping:
             meta = {**meta, **metadata_mapping[table_number.upper()]}
+
+        # Merge JSON formatted topic mappings
+        if table_number.upper() in topic_to_table_mapping:
+            meta["topics"] = topic_to_table_mapping[table_number.upper()]
+        else:
+            raise Exception("Couldn't find a topic mapping for table '%s'" % (table_number))
 
         columns = col_meta[table_number]
 
