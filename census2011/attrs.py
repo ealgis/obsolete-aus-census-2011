@@ -544,7 +544,7 @@ def build_geo_gid_mapping(factory):
     geo_gid_mapping = {}
     for census_division in SHAPE_LINKAGE:
         geo_column, geo_cast_required, _ = SHAPE_LINKAGE[census_division]
-        geo_cls = shape_access.get_table_class(census_division)
+        geo_cls = shape_access.get_table_class(census_division, refresh=True)
         geo_attr = getattr(geo_cls, geo_column)
         if geo_cast_required is not None:
             inner_col = sqlalchemy.cast(geo_attr, geo_cast_required)
