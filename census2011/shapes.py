@@ -9,6 +9,7 @@ from ealgis_common.util import make_logger
 import os
 import os.path
 import sqlalchemy
+from datetime import datetime
 
 
 logger = make_logger(__name__)
@@ -83,7 +84,9 @@ def load_shapes(factory, census_dir, tmpdir):
 
     loader.set_metadata(
         name='ABS Census 2011',
-        description="2011 Australian Census: Spatial Data")
+        description="2011 Australian Census: Spatial Data",
+        date_published=datetime(2012, 6, 21, 3, 0, 0)  # Set in UTC
+    )
     loader.session.commit()
     load_shapes()
     return loader.result()
