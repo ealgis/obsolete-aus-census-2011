@@ -61,7 +61,7 @@ def parseColumnMetadata(table_number, column_name, metadata):
         return rowLabel
 
     def formatHumanReadableColumnLabel(columnLabel):
-        return columnLabel.strip()
+        return columnLabel.strip().replace("\\", "")
 
     metadata_original = metadata.copy()
     metadata = repair_census_metadata(table_number, column_name.lower(), metadata)
@@ -205,7 +205,7 @@ def load_metadata(loader, census_dir, xlsx_name, data_tables, columns_by_series)
 
     def get_topic_to_table_mapping():
         mapping = {}
-        for json_file in glob.glob(os.path.join("./", "census2016", "*_topic_mapping.json")):
+        for json_file in glob.glob(os.path.join("./", "census2011", "*_topic_mapping.json")):
             with open(json_file, "r") as f:
                 for topic_name, tables in json.load(f).items():
                     for table_number in tables:
@@ -284,6 +284,53 @@ def load_metadata(loader, census_dir, xlsx_name, data_tables, columns_by_series)
 
             # Filter all columns for the table down to just those columns in this series
             columns = [(col_name, col) for col_name, col in col_meta[table_number] if col_name.upper() in columns_by_series[table_number][series_name]["columns"]]
+
+        # Validate metadata to ensure that we have the expected number
+        # of rows and columns
+        def isTableColumnMetadataValid(header, rows, column_uids):
+            for h in header:
+                for r in rows:
+                    column_uid = "{}.{}".format(r, h)
+                    if column_uid not in column_uids:
+                        return False
+            return True
+
+        def getNumberOfMatchingHeaders(row, header, column_uids):
+            count = 0
+            headers = []
+            for h in header:
+                column_uid = "{}.{}".format(row, h)
+                if column_uid in column_uids:
+                    count += 1
+                    headers.append(h)
+            return count, headers
+
+        header = list(set([c[1]["kind"] for c in columns]))
+        rows = list(set([c[1]["type"] for c in columns]))
+        column_uids = list(set(["{}.{}".format(c[1]["type"], c[1]["kind"]) for c in columns]))
+
+        if isTableColumnMetadataValid(header, rows, column_uids) == False:
+            logger.error("Table Header/Row mismatch found on table '{}' series '{}'".format(table_number, meta["series"]))
+
+            # for r in rows:
+            #     matches, headers = getNumberOfMatchingHeaders(r, header, column_uids)
+            #     if matches != len(header):
+            #         missing = [i for i in header if i not in headers]
+            #         logger.error("Row '{}' has {} of {} matching headers. Missing: {}".format(r, matches, len(header), ", ".join(missing)))
+
+        # print("#### header for series '{}'".format(meta["series"]), len(header))
+        # for h in header:
+        #     print(h)
+
+        # print("#### rows for series '{}'".format(meta["series"]), len(rows))
+        # for r in rows:
+        #     print(r)
+
+        # print("#### column_uids for series '{}'".format(meta["series"]), len(column_uids))
+        # for uid in column_uids:
+        #     print(uid)
+
+        # print("#### columns for series '{}'".format(meta["series"]), len(columns))
 
         loader.set_table_metadata(table_name, meta)
         loader.register_columns(table_name, columns)
@@ -427,8 +474,14 @@ def load_datapacks(loader, census_dir, tmpdir, packname, abbrev, geo_gid_mapping
         csv_files = []
 
         for geography_name, tables in csv_files_by_geog_and_table.items():
+            # if geography_name != "lga":
+            #     continue
+
             for table_name, csv_paths in csv_files_by_geog_and_table[geography_name].items():
                 # Merge the separate profile table/datapack CSVs into a single new  CSV file based on region_id (first column)
+                # if table_name != "i10":
+                #     continue
+
                 if len(csv_paths) > 1:
                     dicts = []
 

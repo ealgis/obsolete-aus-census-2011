@@ -28,6 +28,16 @@ def repair_census_metadata(table_number, column_name, metadata):
     if table_number == "b03":
         if metadata["kind"] != "Total":
             metadata["kind"] = "Age %s" % (metadata["kind"])
+    elif table_number == "b09":
+        column_number = int(column_name[1:])
+        # These are mislabelled as "Person" - actually part of the PERSONS column
+        if column_number == 1273:
+            metadata["type"] += "s"
+            metadata["kind"] = "Persons"
+        # These are mislabelled as "Total" - actually part of the PERSONS column
+        elif column_number == 1300:
+            metadata["type"] = "Japan_Persons"
+            metadata["kind"] = "Persons"
     elif table_number == "b10":
         if not (metadata["kind"] == "Total" or metadata["kind"] == "Year of arrival not stated"):
             metadata["kind"] = "Year of arrival %s" % (metadata["kind"])
@@ -59,6 +69,9 @@ def repair_census_metadata(table_number, column_name, metadata):
             ": 6 or more": " Six or more children",
             ": None": " No children",
         })
+    elif table_number == "b32":
+        if not (metadata["kind"].startswith("Total") or metadata["kind"].startswith("Dwelling structure not stated")):
+            metadata["kind"] = "Dwelling structure %s" % (metadata["kind"])
     elif table_number == "b33":
         if not (metadata["kind"].startswith("Total") or metadata["kind"].startswith("Dwelling structure not stated")):
             metadata["kind"] = "Dwelling structure %s" % (metadata["kind"])
@@ -91,6 +104,14 @@ def repair_census_metadata(table_number, column_name, metadata):
     elif table_number == "b45":
         if not (metadata["kind"].startswith("Total") or metadata["kind"].startswith("Occupation inadequately described/ Not stated")):
             metadata["kind"] = "Occupation %s" % (metadata["kind"])
+    elif table_number == "i01":
+        metadata["kind"] = multiple_replace(metadata["kind"], {
+            "Total ": "Total: ",
+            "Non-Indigenous ": "Non-Indigenous: ",
+            "Indigenous Males": "Indigenous: Males",
+            "Indigenous Females": "Indigenous: Females",
+            "Indigenous Persons": "Indigenous: Persons",
+        })
     elif table_number == "i02":
         metadata["kind"] = multiple_replace(metadata["kind"], {
             "Indigenous: Total ": "",
@@ -102,6 +123,11 @@ def repair_census_metadata(table_number, column_name, metadata):
         metadata["kind"] = metadata["kind"].replace("No need for assistance", "Does not have need for assistance")
         if metadata["kind"].startswith("Need for assistance|"):
             metadata["kind"] = "Has %s" % (metadata["kind"])
+    elif table_number == "i10":
+        if not (metadata["kind"].startswith("Total") or metadata["kind"].startswith("Dwelling structure not stated")):
+            metadata["kind"] = "Dwelling structure %s" % (metadata["kind"])
+        if "Dwelling_structure_Total" in metadata["type"]:
+            metadata["type"] = metadata["type"].replace("Dwelling_structure_Total", "Total")
     elif table_number == "i11":
         metadata["kind"] = metadata["kind"].replace("Indigenous households", "Households with Indigenous persons")
     elif table_number == "i12":
@@ -115,6 +141,9 @@ def repair_census_metadata(table_number, column_name, metadata):
         })
     elif table_number == "i15":
         metadata["type"] = metadata["type"].replace("Certificatel", "Certificate")
+    elif table_number == "p03":
+        if metadata["kind"] != "Total":
+            metadata["kind"] = "Age {}".format(metadata["kind"])
     elif table_number == "p10":
         if not (column_name == "p1966" or column_name == "p1967"):
             if not (metadata["kind"] == "Total" or metadata["kind"] == "Year of arrival not stated"):
@@ -183,6 +212,9 @@ def repair_census_metadata(table_number, column_name, metadata):
             ": 6 or more": " Six or more children",
             ": None": " No children",
         })
+    elif table_number == "p32":
+        if not (metadata["kind"] == "Total" or metadata["kind"] == "Dwelling structure not stated"):
+            metadata["kind"] = "Dwelling structure %s" % (metadata["kind"])
     elif table_number == "p33":
         if not (metadata["kind"] == "Total" or metadata["kind"] == "Dwelling structure not stated"):
             metadata["kind"] = "Dwelling structure %s" % (metadata["kind"])
@@ -219,10 +251,10 @@ def repair_census_metadata(table_number, column_name, metadata):
     elif table_number == "x24":
         metadata["kind"] = multiple_replace(metadata["kind"], {
             "etc:": "etc with",
-            "Dwelling structure: Dwelling structure not stated": "Dwelling structure not stated",
+            "Dwelling structure: Dwelling structure not stated": "Dwelling structure: not stated",
         })
         if column_name == "x11568":
-            metadata["kind"] = "Dwelling structure: Dwelling structure not stated"
+            metadata["type"] = metadata["type"].replace("Dwelling_structure_Dwelling_structure_not_stated", "Dwelling_structure_not_stated")
     elif table_number == "x38":
         metadata["kind"] = metadata["kind"].replace("49 and over", "49 hours and over")
     elif table_number == "x39":
@@ -271,7 +303,7 @@ def repair_census_metadata(table_number, column_name, metadata):
             metadata["kind"] = "Dwelling structure %s" % (metadata["kind"])
 
         if column_name == "t7780":
-            metadata["kind"] = "Other dwelling|2011 CENSUS"
+            metadata["kind"] = "Dwelling structure Other dwelling|2011 CENSUS"
     elif table_number == "t19":
         if not (metadata["kind"].startswith("Total") or metadata["kind"].startswith("Landlord type not stated")):
             metadata["kind"] = "Landlord type %s" % (metadata["kind"])
