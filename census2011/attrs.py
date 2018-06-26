@@ -17,7 +17,6 @@ from collections import OrderedDict
 
 from ealgis_common.loaders import RewrittenCSV, CSVLoader
 from ealgis_common.util import alistdir, make_logger
-from ealgis_common.db import ealdb
 from .shapes import SHAPE_LINKAGE, SHAPE_SCHEMA
 from .attrs_repair import repair_census_metadata, repair_column_series_census_metadata
 
@@ -580,7 +579,7 @@ def load_datapacks(loader, census_dir, tmpdir, packname, abbrev, geo_gid_mapping
         if csv_path.endswith(".tmp.csv"):
             os.remove(csv_path)
 
-    with ealdb.access_schema(SHAPE_SCHEMA) as geo_access:
+    with loader.access_schema(SHAPE_SCHEMA) as geo_access:
         for attr_table, table_info, census_division in linkage_pending:
             geo_column, _, _ = SHAPE_LINKAGE[census_division]
             loader.add_geolinkage(
