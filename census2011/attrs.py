@@ -17,6 +17,7 @@ from collections import OrderedDict
 
 from ealgis_common.loaders import RewrittenCSV, CSVLoader
 from ealgis_common.util import alistdir, make_logger
+from ealgis_common.db import ealdb
 from .shapes import SHAPE_LINKAGE, SHAPE_SCHEMA
 from .attrs_repair import repair_census_metadata, repair_column_series_census_metadata
 
@@ -309,7 +310,7 @@ def load_metadata(loader, census_dir, xlsx_name, data_tables, columns_by_series)
         rows = list(set([c[1]["type"] for c in columns]))
         column_uids = list(set(["{}.{}".format(c[1]["type"], c[1]["kind"]) for c in columns]))
 
-        if isTableColumnMetadataValid(header, rows, column_uids) == False:
+        if not isTableColumnMetadataValid(header, rows, column_uids):
             logger.error("Table Header/Row mismatch found on table '{}' series '{}'".format(table_number, meta["series"]))
 
             # for r in rows:
@@ -579,10 +580,7 @@ def load_datapacks(loader, census_dir, tmpdir, packname, abbrev, geo_gid_mapping
         if csv_path.endswith(".tmp.csv"):
             os.remove(csv_path)
 
-    # @FIXME Doesn't work in the new multi-schema world. DataLoader.get_geometry_source() fails.
-    # done as another pass to avoid having to re-run the reflection of the entire
-    # database for every CSV file loaded (can be thousands)
-    with loader.access_schema(SHAPE_SCHEMA) as geo_access:
+    with ealdb.access_schema(SHAPE_SCHEMA) as geo_access:
         for attr_table, table_info, census_division in linkage_pending:
             geo_column, _, _ = SHAPE_LINKAGE[census_division]
             loader.add_geolinkage(
@@ -594,21 +592,21 @@ def load_datapacks(loader, census_dir, tmpdir, packname, abbrev, geo_gid_mapping
 
 
 def build_geo_gid_mapping(factory):
-    shape_access = factory.make_schema_access(SHAPE_SCHEMA)
-    geo_gid_mapping = {}
-    for census_division in SHAPE_LINKAGE:
-        geo_column, geo_cast_required, _ = SHAPE_LINKAGE[census_division]
-        geo_cls = shape_access.get_table_class(census_division, refresh=True)
-        geo_attr = getattr(geo_cls, geo_column)
-        if geo_cast_required is not None:
-            inner_col = sqlalchemy.cast(geo_attr, geo_cast_required)
-        else:
-            inner_col = geo_attr
-        lookup = {}
-        for gid, match in shape_access.session.query(geo_cls.gid, inner_col).all():
-            lookup[str(match)] = gid
-        geo_gid_mapping[census_division] = lookup
-    return geo_gid_mapping
+    with factory.make_schema_access(SHAPE_SCHEMA) as shape_access:
+        geo_gid_mapping = {}
+        for census_division in SHAPE_LINKAGE:
+            geo_column, geo_cast_required, _ = SHAPE_LINKAGE[census_division]
+            geo_cls = shape_access.get_table_class(census_division, refresh=True)
+            geo_attr = getattr(geo_cls, geo_column)
+            if geo_cast_required is not None:
+                inner_col = sqlalchemy.cast(geo_attr, geo_cast_required)
+            else:
+                inner_col = geo_attr
+            lookup = {}
+            for gid, match in shape_access.session.query(geo_cls.gid, inner_col).all():
+                lookup[str(match)] = gid
+            geo_gid_mapping[census_division] = lookup
+        return geo_gid_mapping
 
 
 def load_attrs(factory, census_dir, tmpdir):
@@ -628,17 +626,16 @@ def load_attrs(factory, census_dir, tmpdir):
     for package_name, abbrev, metadata_filename, package_description in packages:
         dirname = '2011 ' + package_name + ' Release %s' % release
         schema_name = 'aus_census_2011_' + abbrev.lower()
-        loader = factory.make_loader(schema_name)
-        loader.add_dependency(SHAPE_SCHEMA)
-        loader.set_metadata(
-            name=package_name,
-            family="ABS Census 2011",
-            description=package_description,
-            date_published=datetime(2012, 6, 21, 3, 0, 0)  # Set in UTC
-        )
-
-        columns_by_series = load_metadata_table_serises(loader, census_dir, metadata_filename)
-        data_tables = load_datapacks(loader, census_dir, tmpdir, dirname, abbrev, geo_gid_mapping, columns_by_series)
-        load_metadata(loader, census_dir, metadata_filename, data_tables, columns_by_series)
-        attr_results.append(loader.result())
+        with factory.make_loader(schema_name) as loader:
+            loader.add_dependency(SHAPE_SCHEMA)
+            loader.set_metadata(
+                name=package_name,
+                family="ABS Census 2011",
+                description=package_description,
+                date_published=datetime(2012, 6, 21, 3, 0, 0)  # Set in UTC
+            )
+            columns_by_series = load_metadata_table_serises(loader, census_dir, metadata_filename)
+            data_tables = load_datapacks(loader, census_dir, tmpdir, dirname, abbrev, geo_gid_mapping, columns_by_series)
+            load_metadata(loader, census_dir, metadata_filename, data_tables, columns_by_series)
+            attr_results.append(loader.result())
     return attr_results

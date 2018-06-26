@@ -61,32 +61,32 @@ SHAPE_LINKAGE = {
 
 
 def load_shapes(factory, census_dir, tmpdir):
-    loader = factory.make_loader(SHAPE_SCHEMA, mandatory_srids=[3112, 3857])
+    with factory.make_loader(SHAPE_SCHEMA, mandatory_srids=[3112, 3857]) as loader:
 
-    def load_shapes():
-        logger.info("load census shapefiles")
-        for table_name, fname in SHAPE_ZIPS:
-            with ZipAccess(None, tmpdir, os.path.join(census_dir + '/Digital Boundaries/', fname)) as z:
-                for shpfile in z.glob("*.shp"):
-                    instance = ShapeLoader(loader.dbschema(), shpfile, 4283, table_name=table_name)
-                    instance.load(loader)
-        logger.info("loaded shapefiles OK")
-        logger.info("creating shape indexes")
-        # create column indexes on shape linkage
+        def load_shapes():
+            logger.info("load census shapefiles")
+            for table_name, fname in SHAPE_ZIPS:
+                with ZipAccess(None, tmpdir, os.path.join(census_dir + '/Digital Boundaries/', fname)) as z:
+                    for shpfile in z.glob("*.shp"):
+                        instance = ShapeLoader(loader.dbschema(), shpfile, 4283, table_name=table_name)
+                        instance.load(loader)
+            logger.info("loaded shapefiles OK")
+            logger.info("creating shape indexes")
+            # create column indexes on shape linkage
+            loader.session.commit()
+            for census_division in SHAPE_LINKAGE:
+                logger.info('creating index for %s' % (census_division))
+                table = loader.get_table(census_division)
+                col, _, descr = SHAPE_LINKAGE[census_division]
+                loader.set_table_metadata(census_division, {'description': descr})
+                idx = sqlalchemy.Index("%s_%s_idx" % (census_division, col), table.columns[col], unique=True)
+                idx.create(loader.engine)
+
+        loader.set_metadata(
+            name='ABS Census 2011',
+            description="2011 Australian Census: Spatial Data",
+            date_published=datetime(2012, 6, 21, 3, 0, 0)  # Set in UTC
+        )
         loader.session.commit()
-        for census_division in SHAPE_LINKAGE:
-            logger.info('creating index for %s' % (census_division))
-            table = loader.get_table(census_division)
-            col, _, descr = SHAPE_LINKAGE[census_division]
-            loader.set_table_metadata(census_division, {'description': descr})
-            idx = sqlalchemy.Index("%s_%s_idx" % (census_division, col), table.columns[col], unique=True)
-            idx.create(loader.engine)
-
-    loader.set_metadata(
-        name='ABS Census 2011',
-        description="2011 Australian Census: Spatial Data",
-        date_published=datetime(2012, 6, 21, 3, 0, 0)  # Set in UTC
-    )
-    loader.session.commit()
-    load_shapes()
-    return loader.result()
+        load_shapes()
+        return loader.result()
