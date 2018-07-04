@@ -174,7 +174,7 @@ def load_metadata_table_serises(loader, census_dir, xlsx_name):
     return col_meta
 
 
-def load_metadata(loader, census_dir, xlsx_name, data_tables, columns_by_series):
+def load_metadata(loader, census_dir, xlsx_name, data_tables, columns_by_series, not_applicable_columns):
     table_meta = {}
     col_meta = {}
 
@@ -239,11 +239,16 @@ def load_metadata(loader, census_dir, xlsx_name, data_tables, columns_by_series)
             col_meta[table_number] = []
 
         try:
-            col_meta[table_number].append((name, parseColumnMetadata(
+            meta = parseColumnMetadata(
                 table_number,
                 name,
                 {'type': str(row[2]).strip(), 'kind': str(row[5]).strip()}
-            )))
+            )
+
+            if name.lower() in not_applicable_columns:
+                meta["na"] = True
+
+            col_meta[table_number].append((name, meta))
         except Exception as e:
             if "object has no attribute" in str(e):
                 print(name)
@@ -533,12 +538,52 @@ def load_datapacks(loader, census_dir, tmpdir, packname, abbrev, geo_gid_mapping
                         csv_files.append(csv_paths[0])
         return csv_files
 
+    def handleNotApplicableCells(value, column_name):
+        """
+        Detect cells that are 'Not Applicable' in the source data and
+        set them to None (NULL in PostgreSQL).
+
+        e.g. G23 has a row that refers to people who migrated to
+        Australia before 2000, and a column that describes people who 
+        are 14 years or younger. i.e. An impossibility.
+
+        Cells that are not applicable have no value and need to be
+        disabled in the Ealgis GUI so users can't select them.
+
+        In the Census these are represented by the string ".."
+
+        value (string): The value of a cell in a CSV file.
+        column_name (string): The name of the column this cell is in e.g. g7068
+
+        Returns:
+            value (string or None)
+        """
+        # https://stackoverflow.com/a/23639915
+        def is_number(s):
+            """ Returns True is string is a number (int or float). """
+            return s.replace('.', '', 1).isdigit()
+
+        NotApplicableString = ".."
+
+        if is_number(value) is False and value != NotApplicableString:
+            logger.error("A cell contains an unknown value of \"{}\"".format(value))
+
+        if column_name.lower() in not_applicable_columns and is_number(value) is True:
+            # Remove column_name from stack if it looks like data
+            not_applicable_columns.remove(column_name.lower())
+        if column_name.lower() not in not_applicable_columns and value == NotApplicableString:
+            # Add column_name to stack if it's Not Applicable
+            not_applicable_columns.append(column_name.lower())
+
+        return None if value == NotApplicableString else value
+
     d = os.path.join(census_dir, packname, "Sequential Number Descriptor")
     csv_files = merge_and_get_csv_files_by_table_and_series()
 
     table_re = re.compile(r'^2011Census_(.*)_sequential(.tmp)?.csv$')
     linkage_pending = []
     data_tables = []
+    not_applicable_columns = []
 
     for i, csv_path in enumerate(csv_files):
         logger.info("%s: [%d/%d] %s" % (abbrev, i + 1, len(csv_files), os.path.basename(csv_path)))
@@ -557,13 +602,27 @@ def load_datapacks(loader, census_dir, tmpdir, packname, abbrev, geo_gid_mapping
         if census_division is not None:
             def make_match_fn():
                 lookup = geo_gid_mapping[census_division]
+                header = None
+
+                def _getColumnNameFromHeader(cell_index_in_row):
+                    # We add 2 to the index because the first two columns are ["gid", "region_id"] and
+                    # we're starting from position 1 in the row.
+                    return header[cell_index_in_row + 2:cell_index_in_row + 3][0]
 
                 def _matcher(line, row):
+                    nonlocal header
                     if line == 0:
-                        # rewrite the header
-                        return ['gid'] + row
+                        # Rewrite the header
+                        # col_mapping: Map from ("G11", "Tot_P_M") (in the CSV header) to "G100" (in the database)
+                        header = ["gid", "region_id"] + [col_mapping[(table_number, v.lower())] for v in row[1:]]
+                        return header
                     else:
-                        return [str(lookup[row[0]])] + row
+                        # Data rows
+                        if row[0] in lookup:
+                            return [str(lookup[row[0]])] + [row[0]] + [handleNotApplicableCells(v, _getColumnNameFromHeader(k)) for k, v in enumerate(row[1:])]
+                        else:
+                            # Fail dramatically if any missing gids have made it this far
+                            raise Exception("failed gid lookup for '%s' for '%s'" % (row[0], census_division))
                 return _matcher
             gid_match = make_match_fn()
 
@@ -587,7 +646,7 @@ def load_datapacks(loader, census_dir, tmpdir, packname, abbrev, geo_gid_mapping
                 census_division, "gid",
                 attr_table, "gid")
 
-    return data_tables
+    return data_tables, not_applicable_columns
 
 
 def build_geo_gid_mapping(factory):
@@ -634,7 +693,7 @@ def load_attrs(factory, census_dir, tmpdir):
                 date_published=datetime(2012, 6, 21, 3, 0, 0)  # Set in UTC
             )
             columns_by_series = load_metadata_table_serises(loader, census_dir, metadata_filename)
-            data_tables = load_datapacks(loader, census_dir, tmpdir, dirname, abbrev, geo_gid_mapping, columns_by_series)
-            load_metadata(loader, census_dir, metadata_filename, data_tables, columns_by_series)
+            data_tables, not_applicable_columns = load_datapacks(loader, census_dir, tmpdir, dirname, abbrev, geo_gid_mapping, columns_by_series)
+            load_metadata(loader, census_dir, metadata_filename, data_tables, columns_by_series, not_applicable_columns)
             attr_results.append(loader.result())
     return attr_results
