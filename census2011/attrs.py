@@ -126,6 +126,7 @@ def load_metadata_table_serises(loader, census_dir, xlsx_name):
         return None if "|" not in kind else kind.split("|")[1]
 
     col_meta = {}
+    col_mapping = {}
 
     fname = os.path.join(census_dir + '/Metadata/', xlsx_name)
     logger.info("parsing metadata: %s" % (fname))
@@ -155,6 +156,9 @@ def load_metadata_table_serises(loader, census_dir, xlsx_name):
 
         column_heading = repair_column_series_census_metadata(table_number, column_name.lower(), str(column_heading).strip())
         seriseName = getSeriesName(column_heading)
+
+        col_mapping[(table_number.lower(), short_name.lower())] = column_name
+
         if seriseName is not None:
             if table_number not in col_meta:
                 col_meta[table_number] = {}
@@ -171,7 +175,7 @@ def load_metadata_table_serises(loader, census_dir, xlsx_name):
                 col_meta[table_number][seriseName]["datapackNames"].append(datapack_file.lower())
     del wb
 
-    return col_meta
+    return col_meta, col_mapping
 
 
 def load_metadata(loader, census_dir, xlsx_name, data_tables, columns_by_series, not_applicable_columns):
@@ -341,7 +345,7 @@ def load_metadata(loader, census_dir, xlsx_name, data_tables, columns_by_series,
         loader.register_columns(table_name, columns)
 
 
-def load_datapacks(loader, census_dir, tmpdir, packname, abbrev, geo_gid_mapping, columns_by_series):
+def load_datapacks(loader, census_dir, tmpdir, packname, abbrev, geo_gid_mapping, columns_by_series, col_mapping):
     def get_csv_files():
         files = []
         for geography in alistdir(d):
@@ -589,6 +593,9 @@ def load_datapacks(loader, census_dir, tmpdir, packname, abbrev, geo_gid_mapping
         logger.info("%s: [%d/%d] %s" % (abbrev, i + 1, len(csv_files), os.path.basename(csv_path)))
         table_name = table_re.match(os.path.split(csv_path)[-1]).groups()[0].lower()
 
+        m = re.match('^([a-z]+[0-9]+[a-z]{0,})(s[0-9]{1,2})?_.+', table_name.lower())
+        table_number = m.groups()[0]  # g14_aus_ssc -> g14; g23s1_aus_ssc -> g23
+
         data_tables.append(table_name)
         decoded = table_name.split('_')
 
@@ -692,8 +699,8 @@ def load_attrs(factory, census_dir, tmpdir):
                 description=package_description,
                 date_published=datetime(2012, 6, 21, 3, 0, 0)  # Set in UTC
             )
-            columns_by_series = load_metadata_table_serises(loader, census_dir, metadata_filename)
-            data_tables, not_applicable_columns = load_datapacks(loader, census_dir, tmpdir, dirname, abbrev, geo_gid_mapping, columns_by_series)
+            columns_by_series, col_mapping = load_metadata_table_serises(loader, census_dir, metadata_filename)
+            data_tables, not_applicable_columns = load_datapacks(loader, census_dir, tmpdir, dirname, abbrev, geo_gid_mapping, columns_by_series, col_mapping)
             load_metadata(loader, census_dir, metadata_filename, data_tables, columns_by_series, not_applicable_columns)
             attr_results.append(loader.result())
     return attr_results
