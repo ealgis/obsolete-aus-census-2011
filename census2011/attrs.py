@@ -157,7 +157,7 @@ def load_metadata_table_serises(loader, census_dir, xlsx_name):
         column_heading = repair_column_series_census_metadata(table_number, column_name.lower(), str(column_heading).strip())
         seriseName = getSeriesName(column_heading)
 
-        col_mapping[(table_number.lower(), short_name.lower())] = column_name
+        col_mapping[(table_number.lower(), column_name.lower())] = column_name
 
         if seriseName is not None:
             if table_number not in col_meta:
