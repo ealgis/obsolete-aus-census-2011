@@ -24,11 +24,23 @@ function postgreswait {
 defaults
 postgreswait
 
-if [ ! -d "data/2011 Datapacks BCP_IP_TSP_PEP_ECP_WPP_ERP_Release 3" ]; then
-    echo "Download the Australian Census 2011 and extract in data/"
-    echo
-    echo "https://dl.dropboxusercontent.com/u/10671102/census/2011%20Datapacks%20BCP_IP_TSP_PEP_ECP_WPP_ERP_Release%203.7z"
-    exit 1
+CENSUSBASE="2011 Datapacks BCP_IP_TSP_PEP_ECP_WPP_ERP_Release 3"
+CENSUSDIR="/data/$CENSUSBASE"
+CENSUS7Z="/app/archive/$CENSUSBASE.7z"
+
+mkdir -p "/app/archive/" "/app/dump/"
+
+echo "$CENSUSDIR"
+
+if [ ! -d "$CENSUSDIR" ]; then
+
+    if [ ! -f "$CENSUS7Z" ]; then
+        echo "Downloading the Australian Census 2011..."
+        wget -c -t 1 -O "$CENSUS7Z" 'https://www.dropbox.com/s/yo6rnms4lwgc8zj/2011%20Datapacks%20BCP_IP_TSP_PEP_ECP_WPP_ERP_Release%203.7z?dl=1'
+    fi
+
+    echo "Downloading the Australian Census 2011..."
+    cd /data && 7zr x "$CENSUS7Z"
 fi
 
 echo "loading the 2011 Australian Census"
