@@ -1,12 +1,12 @@
 version: '2'
 services:
   db:
-    image: mdillon/postgis:10-alpine
+    image: ealgis/postgis:latest
     volumes:
       - ./:/app
 
   dataloader:
-    image: ealgis/ealgis-ingest-base:latest
+    image: ealgis/ingest-base:latest
     volumes:
       - ./:/app
     environment:
