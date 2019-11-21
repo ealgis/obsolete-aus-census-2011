@@ -133,7 +133,10 @@ def load_metadata_table_serises(loader, census_dir, xlsx_name):
     wb = openpyxl.load_workbook(fname, read_only=True)
 
     def sheet_data(sheet):
-        return ([t.value for t in r] for r in sheet.iter_rows() if r[0].value is not None)
+        return (
+            [t.value for t in r]
+            for r in sheet.iter_rows()
+            if len(r) > 0 and r[0].value is not None)
 
     def skip_to_descriptors(it):
         for row in sheet_iter:
@@ -187,7 +190,10 @@ def load_metadata(loader, census_dir, xlsx_name, data_tables, columns_by_series,
     wb = openpyxl.load_workbook(fname, read_only=True)
 
     def sheet_data(sheet):
-        return ([t.value for t in r] for r in sheet.iter_rows() if r[0].value is not None)
+        return (
+            [t.value for t in r]
+            for r in sheet.iter_rows()
+            if len(r) > 0 and r[0].value is not None)
 
     def skip(it, n):
         for i in range(n):

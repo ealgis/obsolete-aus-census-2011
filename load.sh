@@ -39,7 +39,7 @@ if [ ! -d "$CENSUSDIR" ]; then
         wget -c -t 1 -O "$CENSUS7Z" 'https://www.dropbox.com/s/yo6rnms4lwgc8zj/2011%20Datapacks%20BCP_IP_TSP_PEP_ECP_WPP_ERP_Release%203.7z?dl=1'
     fi
 
-    echo "Downloading the Australian Census 2011..."
+    echo "Extracting the Australian Census 2011..."
     cd /data && 7zr x "$CENSUS7Z"
 fi
 
